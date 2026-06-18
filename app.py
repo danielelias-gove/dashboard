@@ -94,11 +94,11 @@ def carregar_dados_banco():
     df = pd.DataFrame(dados)
     df = df.rename(columns={"motivo": "Tipo"})
     
-    # CONVERSÃO ROBUSTA DE DATAS: O Pandas resolve fusos horários e formatos variados aqui
-    df['data_inicio'] = pd.to_datetime(df['data_inicio'], errors='coerce').dt.date
-    df['data_fim'] = pd.to_datetime(df['data_fim'], errors='coerce').dt.date
+    # CONVERSÃO DEFINITIVA: Pega os primeiros 10 caracteres (YYYY-MM-DD) antes de converter, salvando todos os tickets!
+    df['data_inicio'] = pd.to_datetime(df['data_inicio'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
+    df['data_fim'] = pd.to_datetime(df['data_fim'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     
-    # Remove apenas as linhas que realmente falharam ao ser transformadas em data
+    # Remove apenas o que realmente estiver nulo na raiz
     df = df.dropna(subset=['data_inicio'])
     return df
 
