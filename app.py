@@ -50,7 +50,7 @@ def carregar_dados_banco():
             "origens(nome), "
             "status(nome), "
             "prioridades(nome), "
-            "sentimentos(nome)"  # Removido a busca por emojis do banco
+            "sentimentos(nome)"  
         ).range(start_index, start_index + chunk_size - 1).execute()
         
         if not response.data:
@@ -171,7 +171,7 @@ if tipos_selecionados:
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
 # =========================================================================
-st.title("Relatório de Engajamento & Suporte")
+st.title("Dashboard de Suporte")
 st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Município: **{municipio_selecionado}**")
 st.divider()
 
@@ -226,7 +226,7 @@ if not df_filtrado.empty:
 
     st.divider()
 
-    st.subheader("Canais e Prioridades", help="Guia Informativo de Canais:\n\n* Interno = Tickets abertos pelo Admin\n* Externo = Vindo do 'Fale com a Gove'\n* Outros = Somatória de WhatsApp + Telefonemas + E-mails")
+    st.subheader("Canais e Prioridades")
     col_crit1, col_crit2 = st.columns(2)
 
     with col_crit1:
@@ -241,9 +241,24 @@ if not df_filtrado.empty:
         st.markdown("**Canais de Origem**")
         df_canais_count = df_filtrado['canal_origem'].value_counts().reset_index()
         df_canais_count.columns = ['Canal', 'Quantidade']
-        fig_canal = px.bar(df_canais_count, x="Canal", y="Quantidade", color="Canal", text_auto=True, color_discrete_map={"Interno": "#3498db", "Outros": "#e67e22", "Externo": "#2ecc71"})
+        fig_canal = px.bar(
+            df_canais_count, 
+            x="Canal", 
+            y="Quantidade", 
+            color="Canal", 
+            text_auto=True, 
+            color_discrete_map={"Interno": "#3498db", "Outros": "#e67e22", "Externo": "#2ecc71"}
+        )
         fig_canal.update_layout(height=250, showlegend=False, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_canal, use_container_width=True)
+        
+        # Legenda informativa fixa inserida logo abaixo do respectivo grafico de barras
+        st.caption(
+            "Guia Informativo de Canais:\n\n"
+            "* Interno = Tickets abertos pelo Admin\n"
+            "* Externo = Vindo do 'Fale com a Gove'\n"
+            "* Outros = Somatória de WhatsApp + Telefonemas + E-mails"
+        )
 
     st.divider()
 
