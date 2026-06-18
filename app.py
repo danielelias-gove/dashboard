@@ -7,7 +7,7 @@ import datetime
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(
     page_title="Dashboard de Suporte",
-    page_icon="📊",
+    page_icon="📊", # Favicon mantido conforme solicitado
     layout="wide"
 )
 
@@ -16,7 +16,7 @@ if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.title("🔐 Acesso Restrito")
+    st.title("Acesso Restrito")
     senha = st.text_input("Digite a senha de acesso da equipe:", type="password")
     if st.button("Entrar"):
         if senha == "gove2026": 
@@ -35,26 +35,41 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO (Sem Fallback Fake)
+# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO (Com paginação)
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
-    response = supabase.table("acoes").select(
-        "id, chamado, protocolo, inicio, fim, observacoes, "
-        "municipios(nome, uf:uf_id(sigla)), "
-        "motivos(nome), "
-        "funcionalidades(nome, modulos(nome)), "
-        "origens(nome), "
-        "status(nome), "
-        "prioridades(nome), "
-        "sentimentos(nome, emoji)"
-    ).execute()
+    dados_completos = []
+    chunk_size = 1000
+    start_index = 0
     
-    if not response.data:
+    while True:
+        response = supabase.table("acoes").select(
+            "id, chamado, protocolo, inicio, fim, observacoes, "
+            "municipios(nome, uf:uf_id(sigla)), "
+            "motivos(nome), "
+            "funcionalidades(nome, modulos(nome)), "
+            "origens(nome), "
+            "status(nome), "
+            "prioridades(nome), "
+            "sentimentos(nome, emoji)"
+        ).range(start_index, start_index + chunk_size - 1).execute()
+        
+        if not response.data:
+            break
+            
+        dados_completos.extend(response.data)
+        
+        if len(response.data) < chunk_size:
+            break
+            
+        start_index += chunk_size
+    
+    if not dados_completos:
         st.error("A tabela de ações retornou vazia. Verifique seu banco de dados.")
         st.stop()
         
     dados = []
-    for r in response.data:
+    for r in dados_completos:
         muni_obj = r.get("municipios") or {}
         uf_obj = muni_obj.get("uf") if isinstance(muni_obj, dict) and muni_obj.get("uf") else {}
         
@@ -86,19 +101,17 @@ def carregar_dados_banco():
             "modulo": mod_obj.get("nome", "Outros") if isinstance(mod_obj, dict) else "Outros",
             "funcionalidade": func_obj.get("nome", "Outros"),
             "sentimento": sentimento_completo,
-            "data_inicio": r.get("inicio"), # Pegando o valor original para converter depois
-            "data_fim": r.get("fim"),       # Pegando o valor original para converter depois
+            "data_inicio": r.get("inicio"), 
+            "data_fim": r.get("fim"),       
             "historico_conversa": r.get("observacoes") or "Sem observações registradas."
         })
     
     df = pd.DataFrame(dados)
     df = df.rename(columns={"motivo": "Tipo"})
     
-    # CONVERSÃO DEFINITIVA: Pega os primeiros 10 caracteres (YYYY-MM-DD) antes de converter, salvando todos os tickets!
     df['data_inicio'] = pd.to_datetime(df['data_inicio'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     df['data_fim'] = pd.to_datetime(df['data_fim'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     
-    # Remove apenas o que realmente estiver nulo na raiz
     df = df.dropna(subset=['data_inicio'])
     return df
 
@@ -107,7 +120,7 @@ df_raw = carregar_dados_banco()
 # =========================================================================
 # FILTROS DA CONTROL PANEL (BARRA LATERAL)
 # =========================================================================
-st.sidebar.header("🔍 Painel de Filtros")
+st.sidebar.header("Painel de Filtros")
 
 data_min = df_raw["data_inicio"].min()
 data_max = df_raw["data_inicio"].max()
@@ -157,7 +170,7 @@ st.divider()
 total_abertos = len(df_filtrado)
 total_resolvidos = len(df_filtrado.dropna(subset=['data_fim']))
 
-st.subheader(" Indicadores")
+st.subheader("Indicadores")
 col1, col2, col3 = st.columns(3)
 col1.metric("Atendimentos", total_abertos)
 col2.metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
