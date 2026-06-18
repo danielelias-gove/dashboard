@@ -3,10 +3,10 @@ import pandas as pd
 import plotly.express as px
 from supabase import create_client, Client
 import datetime
-#fjgjsn aa
+
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(
-    page_title="Dashboard de Suporte", 
+    page_title="Dashboard de Suporte",
     layout="wide"
 )
 
