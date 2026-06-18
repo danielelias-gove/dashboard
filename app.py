@@ -6,7 +6,7 @@ import datetime
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(
-    page_title="Dashboard de Engajamento & Suporte",
+    page_title="Dashboard de Suporte",
     page_icon="📊",
     layout="wide"
 )
@@ -16,7 +16,7 @@ if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.title("🔐 Acesso Restrito - Gove Kanban")
+    st.title("🔐 Acesso Restrito")
     senha = st.text_input("Digite a senha de acesso da equipe:", type="password")
     if st.button("Entrar"):
         if senha == "gove2026": 
@@ -35,13 +35,12 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO (Sem Fallback Fake)
+# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
-    # Usando a estrutura exata do seu Schema e fazendo os JOINS nativos do Supabase
     response = supabase.table("acoes").select(
         "id, chamado, protocolo, inicio, fim, observacoes, "
-        "municipios(nome, uf:uf_id(sigla)), "  # Pega o município e a UF atrelada
+        "municipios(nome, uf:uf_id(sigla)), "
         "motivos(nome), "
         "funcionalidades(nome, modulos(nome)), "
         "origens(nome), "
@@ -56,7 +55,6 @@ def carregar_dados_banco():
         
     dados = []
     for r in response.data:
-        # Tratamento de nulos para dicionários aninhados
         muni_obj = r.get("municipios") or {}
         uf_obj = muni_obj.get("uf") if isinstance(muni_obj, dict) and muni_obj.get("uf") else {}
         
@@ -69,19 +67,24 @@ def carregar_dados_banco():
         func_obj = r.get("funcionalidades") or {}
         mod_obj = func_obj.get("modulos") if isinstance(func_obj, dict) else {}
         
-        # Conversão de Datas
-        raw_inicio = r.get("inicio")
-        data_inicio_val = pd.to_datetime(raw_inicio).date() if raw_inicio else None
-        
-        raw_fim = r.get("fim")
-        data_fim_val = pd.to_datetime(raw_fim).date() if raw_fim else None
+        raw_inicio = str(r.get("inicio")) if r.get("inicio") else None
+        if raw_inicio and raw_inicio != "None":
+            data_inicio_pura = raw_inicio.split(' ')[0].split('T')[0] 
+            data_inicio_val = datetime.datetime.strptime(data_inicio_pura, "%Y-%m-%d").date()
+        else:
+            data_inicio_val = None
+            
+        raw_fim = str(r.get("fim")) if r.get("fim") else None
+        if raw_fim and raw_fim != "None":
+            data_fim_pura = raw_fim.split(' ')[0].split('T')[0]
+            data_fim_val = datetime.datetime.strptime(data_fim_pura, "%Y-%m-%d").date()
+        else:
+            data_fim_val = None
 
-        # Aglutinando Município e UF
         nome_muni = muni_obj.get("nome", "Sem Município")
         sigla_uf = uf_obj.get("sigla", "??")
         localidade_completa = f"{nome_muni} - {sigla_uf}"
 
-        # Sentimentos
         emoji = sent_obj.get("emoji", "")
         nome_sentimento = sent_obj.get("nome", "Não Informado")
         sentimento_completo = f"{emoji} {nome_sentimento}".strip()
@@ -93,7 +96,7 @@ def carregar_dados_banco():
             "canal_origem": orig_obj.get("nome", "Não Informado"),
             "status": stat_obj.get("nome", "Sem Status"),
             "prioridade": prio_obj.get("nome", "Sem Prioridade"),
-            "motivo": moti_obj.get("nome", "Outros"),
+            "motivo": moti_obj.get("nome", "Outros"), # Mantemos 'motivo' internamente
             "modulo": mod_obj.get("nome", "Outros") if isinstance(mod_obj, dict) else "Outros",
             "funcionalidade": func_obj.get("nome", "Outros"),
             "sentimento": sentimento_completo,
@@ -103,7 +106,8 @@ def carregar_dados_banco():
         })
     
     df = pd.DataFrame(dados)
-    # Remove registros sem data de início para não quebrar o gráfico
+    # Renomeando a coluna internamente no dataframe final para facilitar a exibição
+    df = df.rename(columns={"motivo": "Tipo"})
     df = df.dropna(subset=['data_inicio'])
     return df
 
@@ -131,13 +135,13 @@ else:
     data_inicio, data_fim = datas_selecionadas
 
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].unique().tolist())
-municipio_selecionado = st.sidebar.selectbox("Localidade:", municipios_disp)
+municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
-motivos_disp = sorted(df_raw["motivo"].unique().tolist())
-motivos_selecionados = st.sidebar.multiselect(
-    "Motivos:", 
-    options=motivos_disp, 
-    default=motivos_disp
+tipos_disp = sorted(df_raw["Tipo"].unique().tolist())
+tipos_selecionados = st.sidebar.multiselect(
+    "Tipos:", 
+    options=tipos_disp, 
+    default=tipos_disp
 )
 
 # --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
@@ -149,18 +153,17 @@ df_filtrado = df_raw[
 if municipio_selecionado != "Todos":
     df_filtrado = df_filtrado[df_filtrado["municipio_uf"] == municipio_selecionado]
 
-if motivos_selecionados:
-    df_filtrado = df_filtrado[df_filtrado["motivo"].isin(motivos_selecionados)]
+if tipos_selecionados:
+    df_filtrado = df_filtrado[df_filtrado["Tipo"].isin(tipos_selecionados)]
 
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
 # =========================================================================
 st.title("📊 Relatório de Engajamento & Suporte")
-st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Localidade: **{municipio_selecionado}**")
+st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Município: **{municipio_selecionado}**")
 st.divider()
 
 total_abertos = len(df_filtrado)
-# Considera como resolvido/finalizado os que possuem Data de Fim preenchida
 total_resolvidos = len(df_filtrado.dropna(subset=['data_fim']))
 
 st.subheader("⚖️ Indicadores Críticos do Período")
@@ -175,15 +178,15 @@ if not df_filtrado.empty:
     col_graf1, col_graf2 = st.columns(2)
 
     with col_graf1:
-        st.markdown("**Distribuição por Motivo**")
-        df_motivos_count = df_filtrado['motivo'].value_counts().reset_index()
-        df_motivos_count.columns = ['Motivo', 'Quantidade']
-        fig_motivo = px.bar(
-            df_motivos_count.sort_values(by="Quantidade", ascending=True), 
-            x="Quantidade", y="Motivo", orientation='h', color="Quantidade", color_continuous_scale="Blues"
+        st.markdown("**Distribuição por Tipo**")
+        df_tipos_count = df_filtrado['Tipo'].value_counts().reset_index()
+        df_tipos_count.columns = ['Tipo', 'Quantidade']
+        fig_tipo = px.bar(
+            df_tipos_count.sort_values(by="Quantidade", ascending=True), 
+            x="Quantidade", y="Tipo", orientation='h', color="Quantidade", color_continuous_scale="Blues"
         )
-        fig_motivo.update_layout(showlegend=False, height=350, margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(fig_motivo, use_container_width=True)
+        fig_tipo.update_layout(showlegend=False, height=350, margin=dict(l=0, r=0, t=10, b=0))
+        st.plotly_chart(fig_tipo, use_container_width=True)
 
     with col_graf2:
         st.markdown("**Maiores Ofensores por Módulo do Sistema**")
@@ -198,13 +201,13 @@ if not df_filtrado.empty:
     st.divider()
 
     st.subheader("📈 Evolução Temporal de Abertura")
-    if len(motivos_selecionados) == len(motivos_disp) or len(motivos_selecionados) == 0:
+    if len(tipos_selecionados) == len(tipos_disp) or len(tipos_selecionados) == 0:
         df_agrupado = df_filtrado.groupby("data_inicio").size().reset_index(name="Volume")
         df_agrupado["Visão"] = "Todos os Atendimentos"
         fig_linha = px.line(df_agrupado, x="data_inicio", y="Volume", color="Visão", markers=True)
     else:
-        df_agrupado = df_filtrado.groupby(["data_inicio", "motivo"]).size().reset_index(name="Volume")
-        fig_linha = px.line(df_agrupado, x="data_inicio", y="Volume", color="motivo", markers=True)
+        df_agrupado = df_filtrado.groupby(["data_inicio", "Tipo"]).size().reset_index(name="Volume")
+        fig_linha = px.line(df_agrupado, x="data_inicio", y="Volume", color="Tipo", markers=True)
         
     fig_linha.update_layout(hovermode="x unified", xaxis_title="Data de Início", yaxis_title="Tickets")
     st.plotly_chart(fig_linha, use_container_width=True)
@@ -236,7 +239,7 @@ if not df_filtrado.empty:
     col_tabela, col_inspecao = st.columns([3, 2])
 
     with col_tabela:
-        dados_exibicao = df_filtrado[["protocolo", "municipio_uf", "motivo", "modulo", "status", "data_inicio"]]
+        dados_exibicao = df_filtrado[["protocolo", "municipio_uf", "Tipo", "modulo", "status", "data_inicio"]]
         selecao = st.dataframe(
             dados_exibicao,
             use_container_width=True,
@@ -252,8 +255,8 @@ if not df_filtrado.empty:
             reg = df_filtrado.iloc[idx]
             
             st.success(f"**Protocolo:** `{reg['protocolo']}` | **Status:** `{reg['status']}`")
-            st.markdown(f"**Localidade:** {reg['municipio_uf']} | **Origem:** {reg['canal_origem']}")
-            st.markdown(f"**Motivo:** {reg['motivo']} | **Módulo:** {reg['modulo']}")
+            st.markdown(f"**Município:** {reg['municipio_uf']} | **Origem:** {reg['canal_origem']}")
+            st.markdown(f"**Tipo:** {reg['Tipo']} | **Módulo:** {reg['modulo']}")
             st.markdown(f"**Funcionalidade:** {reg['funcionalidade']} | **Prioridade:** {reg['prioridade']}")
             st.markdown(f"**Sentimento:** {reg['sentimento']}")
             st.markdown(f"**Início:** {reg['data_inicio']} | **Fim:** {reg['data_fim'] or 'Em aberto'}")
