@@ -283,7 +283,7 @@ if not df_filtrado.empty:
             
             st.success(f"**Protocolo:** `{reg['protocolo']}` | **Status:** `{reg['status']}`")
             st.markdown(f"**Município:** {reg['municipio_uf']} | **Origem:** {reg['canal_origem']}")
-            st.markdown(f"**Tipo:** {reg['Tipo']} | **Módulo:** {reg['modulo']}")
+            st.markdown(f"**Tipo:** {reg['tipo']} | **Módulo:** {reg['modulo']}")
             st.markdown(f"**Funcionalidade:** {reg['funcionalidade']} | **Prioridade:** {reg['prioridade']}")
             st.markdown(f"**Sentimento:** {reg['sentimento']}")
             st.markdown(f"**Início:** {reg['data_inicio']} | **Fim:** {reg['data_fim'] or 'Em aberto'}")
