@@ -7,7 +7,6 @@ import datetime
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(
     page_title="Dashboard de Suporte",
-    page_icon="📊", # Favicon mantido conforme solicitado
     layout="wide"
 )
 
@@ -35,7 +34,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO (Com paginação)
+# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -46,22 +45,20 @@ def carregar_dados_banco():
         response = supabase.table("acoes").select(
             "id, chamado, protocolo, inicio, fim, observacoes, "
             "municipios(nome, uf:uf_id(sigla)), "
-            "motivos(nome), "
+            "motivos(nome, status), "  
             "funcionalidades(nome, modulos(nome)), "
             "origens(nome), "
             "status(nome), "
             "prioridades(nome), "
-            "sentimentos(nome, emoji)"
+            "sentimentos(nome)"  # Removido a busca por emojis do banco
         ).range(start_index, start_index + chunk_size - 1).execute()
         
         if not response.data:
             break
             
         dados_completos.extend(response.data)
-        
         if len(response.data) < chunk_size:
             break
-            
         start_index += chunk_size
     
     if not dados_completos:
@@ -82,36 +79,42 @@ def carregar_dados_banco():
         func_obj = r.get("funcionalidades") or {}
         mod_obj = func_obj.get("modulos") if isinstance(func_obj, dict) else {}
         
+        if isinstance(moti_obj, dict) and moti_obj.get("status") == "I":
+            continue
+
         nome_muni = muni_obj.get("nome", "Sem Município")
         sigla_uf = uf_obj.get("sigla", "??")
         localidade_completa = f"{nome_muni} - {sigla_uf}"
-
-        emoji = sent_obj.get("emoji", "")
         nome_sentimento = sent_obj.get("nome", "Não Informado")
-        sentimento_completo = f"{emoji} {nome_sentimento}".strip()
+
+        canal_bruto = orig_obj.get("nome", "Interno")
+        if canal_bruto in ["WhatsApp", "Telefonemas", "Emails", "E-mail", "Outros"]:
+            canal_tratado = "Outros"
+        elif canal_bruto == "Externo":
+            canal_tratado = "Externo"
+        else:
+            canal_tratado = canal_bruto
 
         dados.append({
             "id": r.get("id"),
             "protocolo": r.get("protocolo") or "Sem Protocolo",
             "municipio_uf": localidade_completa,
-            "canal_origem": orig_obj.get("nome", "Não Informado"),
+            "canal_origem": canal_tratado,
             "status": stat_obj.get("nome", "Sem Status"),
             "prioridade": prio_obj.get("nome", "Sem Prioridade"),
-            "motivo": moti_obj.get("nome", "Outros"),
+            "Tipo": moti_obj.get("nome", "Não Informado"), 
             "modulo": mod_obj.get("nome", "Outros") if isinstance(mod_obj, dict) else "Outros",
             "funcionalidade": func_obj.get("nome", "Outros"),
-            "sentimento": sentimento_completo,
+            "sentimento": nome_sentimento,
             "data_inicio": r.get("inicio"), 
             "data_fim": r.get("fim"),       
             "historico_conversa": r.get("observacoes") or "Sem observações registradas."
         })
     
     df = pd.DataFrame(dados)
-    df = df.rename(columns={"motivo": "Tipo"})
     
     df['data_inicio'] = pd.to_datetime(df['data_inicio'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     df['data_fim'] = pd.to_datetime(df['data_fim'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
-    
     df = df.dropna(subset=['data_inicio'])
     return df
 
@@ -141,11 +144,16 @@ else:
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
-tipos_disp = sorted(df_raw["Tipo"].unique().tolist())
+tipos_disp = ['Bug', 'Configuração', 'Criação', 'Dúvida', 'Erro', 'Externo', 'Incidente', 'Reclamação', 'Solicitação']
+
+if "Não Informado" in df_raw["Tipo"].unique().tolist():
+    tipos_disp.append("Não Informado")
+
 tipos_selecionados = st.sidebar.multiselect(
     "Tipos:", 
     options=tipos_disp, 
-    default=tipos_disp
+    default=tipos_disp,
+    help="Exibindo apenas os motivos marcados com status Ativo na tabela de configurações do banco."
 )
 
 # --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
@@ -163,7 +171,7 @@ if tipos_selecionados:
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
 # =========================================================================
-st.title("Dashboard de Suporte")
+st.title("Relatório de Engajamento & Suporte")
 st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Município: **{municipio_selecionado}**")
 st.divider()
 
@@ -173,7 +181,7 @@ total_resolvidos = len(df_filtrado.dropna(subset=['data_fim']))
 st.subheader("Indicadores")
 col1, col2, col3 = st.columns(3)
 col1.metric("Atendimentos", total_abertos)
-col2.metric("Atendimentos Finalizados", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
+col2.metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
 col3.metric("Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
 st.divider()
 
@@ -218,7 +226,7 @@ if not df_filtrado.empty:
 
     st.divider()
 
-    st.subheader("Canais e Prioridades")
+    st.subheader("Canais e Prioridades", help="Guia Informativo de Canais:\n\n* Interno = Tickets abertos pelo Admin\n* Externo = Vindo do 'Fale com a Gove'\n* Outros = Somatória de WhatsApp + Telefonemas + E-mails")
     col_crit1, col_crit2 = st.columns(2)
 
     with col_crit1:
@@ -233,7 +241,7 @@ if not df_filtrado.empty:
         st.markdown("**Canais de Origem**")
         df_canais_count = df_filtrado['canal_origem'].value_counts().reset_index()
         df_canais_count.columns = ['Canal', 'Quantidade']
-        fig_canal = px.bar(df_canais_count, x="Canal", y="Quantidade", color="Canal", text_auto=True)
+        fig_canal = px.bar(df_canais_count, x="Canal", y="Quantidade", color="Canal", text_auto=True, color_discrete_map={"Interno": "#3498db", "Outros": "#e67e22", "Externo": "#2ecc71"})
         fig_canal.update_layout(height=250, showlegend=False, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_canal, use_container_width=True)
 
