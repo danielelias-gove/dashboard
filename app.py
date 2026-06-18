@@ -163,7 +163,7 @@ if tipos_selecionados:
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
 # =========================================================================
-st.title("Relatório de Engajamento & Suporte")
+st.title("Dashboard de Suporte")
 st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Município: **{municipio_selecionado}**")
 st.divider()
 
@@ -173,7 +173,7 @@ total_resolvidos = len(df_filtrado.dropna(subset=['data_fim']))
 st.subheader("Indicadores")
 col1, col2, col3 = st.columns(3)
 col1.metric("Atendimentos", total_abertos)
-col2.metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
+col2.metric("Atendimentos Finalizados", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
 col3.metric("Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
 st.divider()
 
