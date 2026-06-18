@@ -35,7 +35,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO
+# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO (Sem Fallback Fake)
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     response = supabase.table("acoes").select(
@@ -67,20 +67,6 @@ def carregar_dados_banco():
         func_obj = r.get("funcionalidades") or {}
         mod_obj = func_obj.get("modulos") if isinstance(func_obj, dict) else {}
         
-        raw_inicio = str(r.get("inicio")) if r.get("inicio") else None
-        if raw_inicio and raw_inicio != "None":
-            data_inicio_pura = raw_inicio.split(' ')[0].split('T')[0] 
-            data_inicio_val = datetime.datetime.strptime(data_inicio_pura, "%Y-%m-%d").date()
-        else:
-            data_inicio_val = None
-            
-        raw_fim = str(r.get("fim")) if r.get("fim") else None
-        if raw_fim and raw_fim != "None":
-            data_fim_pura = raw_fim.split(' ')[0].split('T')[0]
-            data_fim_val = datetime.datetime.strptime(data_fim_pura, "%Y-%m-%d").date()
-        else:
-            data_fim_val = None
-
         nome_muni = muni_obj.get("nome", "Sem Município")
         sigla_uf = uf_obj.get("sigla", "??")
         localidade_completa = f"{nome_muni} - {sigla_uf}"
@@ -96,18 +82,23 @@ def carregar_dados_banco():
             "canal_origem": orig_obj.get("nome", "Não Informado"),
             "status": stat_obj.get("nome", "Sem Status"),
             "prioridade": prio_obj.get("nome", "Sem Prioridade"),
-            "motivo": moti_obj.get("nome", "Outros"), # Mantemos 'motivo' internamente
+            "motivo": moti_obj.get("nome", "Outros"),
             "modulo": mod_obj.get("nome", "Outros") if isinstance(mod_obj, dict) else "Outros",
             "funcionalidade": func_obj.get("nome", "Outros"),
             "sentimento": sentimento_completo,
-            "data_inicio": data_inicio_val,
-            "data_fim": data_fim_val,
+            "data_inicio": r.get("inicio"), # Pegando o valor original para converter depois
+            "data_fim": r.get("fim"),       # Pegando o valor original para converter depois
             "historico_conversa": r.get("observacoes") or "Sem observações registradas."
         })
     
     df = pd.DataFrame(dados)
-    # Renomeando a coluna internamente no dataframe final para facilitar a exibição
     df = df.rename(columns={"motivo": "Tipo"})
+    
+    # CONVERSÃO ROBUSTA DE DATAS: O Pandas resolve fusos horários e formatos variados aqui
+    df['data_inicio'] = pd.to_datetime(df['data_inicio'], errors='coerce').dt.date
+    df['data_fim'] = pd.to_datetime(df['data_fim'], errors='coerce').dt.date
+    
+    # Remove apenas as linhas que realmente falharam ao ser transformadas em data
     df = df.dropna(subset=['data_inicio'])
     return df
 
@@ -159,22 +150,22 @@ if tipos_selecionados:
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
 # =========================================================================
-st.title("📊 Relatório de Engajamento & Suporte")
+st.title("Relatório de Engajamento & Suporte")
 st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Município: **{municipio_selecionado}**")
 st.divider()
 
 total_abertos = len(df_filtrado)
 total_resolvidos = len(df_filtrado.dropna(subset=['data_fim']))
 
-st.subheader("⚖️ Indicadores Críticos do Período")
+st.subheader(" Indicadores")
 col1, col2, col3 = st.columns(3)
-col1.metric("📥 Tickets Abertos", total_abertos)
-col2.metric("✅ Tickets Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
-col3.metric("🎯 Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
+col1.metric("Atendimentos", total_abertos)
+col2.metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
+col3.metric("Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
 st.divider()
 
 if not df_filtrado.empty:
-    st.subheader("🔍 Principais Demandas dos Tickets")
+    st.subheader("Principais Tipos de Atendimento")
     col_graf1, col_graf2 = st.columns(2)
 
     with col_graf1:
@@ -189,7 +180,7 @@ if not df_filtrado.empty:
         st.plotly_chart(fig_tipo, use_container_width=True)
 
     with col_graf2:
-        st.markdown("**Maiores Ofensores por Módulo do Sistema**")
+        st.markdown("**Distribuição por Módulo do Software**")
         df_modulos_count = df_filtrado['modulo'].value_counts().reset_index()
         df_modulos_count.columns = ['Módulo', 'Quantidade']
         fig_modulo = px.pie(
@@ -200,7 +191,7 @@ if not df_filtrado.empty:
 
     st.divider()
 
-    st.subheader("📈 Evolução Temporal de Abertura")
+    st.subheader("Evolução das Aberturas")
     if len(tipos_selecionados) == len(tipos_disp) or len(tipos_selecionados) == 0:
         df_agrupado = df_filtrado.groupby("data_inicio").size().reset_index(name="Volume")
         df_agrupado["Visão"] = "Todos os Atendimentos"
@@ -214,11 +205,11 @@ if not df_filtrado.empty:
 
     st.divider()
 
-    st.subheader("🚨 Canais e Prioridades")
+    st.subheader("Canais e Prioridades")
     col_crit1, col_crit2 = st.columns(2)
 
     with col_crit1:
-        st.markdown("**Distribuição por Prioridade**")
+        st.markdown("**Distribuição de Prioridades por Atendimento**")
         df_prio_count = df_filtrado['prioridade'].value_counts().reset_index()
         df_prio_count.columns = ['Prioridade', 'Quantidade']
         fig_prio = px.pie(df_prio_count, values="Quantidade", names="Prioridade", hole=0.5)
@@ -235,7 +226,7 @@ if not df_filtrado.empty:
 
     st.divider()
 
-    st.subheader("🔍 Tabela Operacional de Registros")
+    st.subheader("Tabela Geral de Registros")
     col_tabela, col_inspecao = st.columns([3, 2])
 
     with col_tabela:
@@ -249,7 +240,7 @@ if not df_filtrado.empty:
         )
 
     with col_inspecao:
-        st.markdown("### 📝 Inspeção do Chamado")
+        st.markdown("### Detalhes do Registro")
         if selecao and "rows" in selecao["selection"] and len(selecao["selection"]["rows"]) > 0:
             idx = selecao["selection"]["rows"][0]
             reg = df_filtrado.iloc[idx]
@@ -261,12 +252,12 @@ if not df_filtrado.empty:
             st.markdown(f"**Sentimento:** {reg['sentimento']}")
             st.markdown(f"**Início:** {reg['data_inicio']} | **Fim:** {reg['data_fim'] or 'Em aberto'}")
             
-            st.text_area("💬 Histórico Completo / Conversa:", value=reg["historico_conversa"], height=250, disabled=True)
+            st.text_area("Histórico Completo / Conversa:", value=reg["historico_conversa"], height=250, disabled=True)
         else:
-            st.info("👈 Selecione um chamado na tabela.")
+            st.info("Selecione um registro na tabela.")
 
 else:
-    st.warning("⚠️ Nenhum registro encontrado com esses filtros.")
+    st.warning("Nenhum registro encontrado com esses filtros.")
 
 st.divider()
 if st.button("Sair/Bloquear Painel"):
