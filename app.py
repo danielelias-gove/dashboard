@@ -32,6 +32,7 @@ TIPOS_ATIVOS = [
     {"id": 3, "nome": "Dúvida"},
     {"id": 4, "nome": "Erro"},
     {"id": 5, "nome": "Solicitação"},
+    {"id": 7, "nome": "Outro"},
     {"id": 8, "nome": "Bug"},
     {"id": 9, "nome": "Incidente"},
     {"id": 11, "nome": "Reclamação"},
