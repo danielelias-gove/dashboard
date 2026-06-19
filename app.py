@@ -25,6 +25,19 @@ if not st.session_state.autenticado:
             st.error("Senha incorreta. Acesso negado.")
     st.stop()
 
+# Lista estática dos 9 motivos ativos do sistema para exibição íntegra no menu
+TIPOS_ATIVOS = [
+    {"id": 1, "nome": "Configuração"},
+    {"id": 2, "nome": "Criação"},
+    {"id": 3, "nome": "Dúvida"},
+    {"id": 4, "nome": "Erro"},
+    {"id": 5, "nome": "Solicitação"},
+    {"id": 8, "nome": "Bug"},
+    {"id": 9, "nome": "Incidente"},
+    {"id": 11, "nome": "Reclamação"},
+    {"id": 13, "nome": "Externo"}
+]
+
 # 3. CONEXÃO COM O SUPABASE
 @st.cache_resource
 def iniciar_conexao():
@@ -43,9 +56,10 @@ def carregar_dados_banco():
     
     while True:
         response = supabase.table("acoes").select(
-            "id, chamado, protocolo, inicio, fim, observacoes, "
+            "id, chamado, protocolo, inicio, fim, observacoes, motivo_id, "
             "municipios(nome, uf:uf_id(sigla)), "
-            "motivos(nome, status), "  
+            "clientes(nome), "
+            "motivos(id, nome, status), "  
             "funcionalidades(nome, modulos(nome)), "
             "origens(nome), "
             "status(nome), "
@@ -68,24 +82,27 @@ def carregar_dados_banco():
     dados = []
     for r in dados_completos:
         muni_obj = r.get("municipios") or {}
-        uf_obj = muni_obj.get("uf") if isinstance(muni_obj, dict) and muni_obj.get("uf") else {}
+        uf_obj = muni_obj.get("uf") or {} if isinstance(muni_obj, dict) else {}
         
         moti_obj = r.get("motivos") or {}
         orig_obj = r.get("origens") or {}
         stat_obj = r.get("status") or {}
         prio_obj = r.get("prioridades") or {}
         sent_obj = r.get("sentimentos") or {}
+        cli_obj = r.get("clientes") or {}
         
         func_obj = r.get("funcionalidades") or {}
         mod_obj = func_obj.get("modulos") if isinstance(func_obj, dict) else {}
-        
-        if isinstance(moti_obj, dict) and moti_obj.get("status") == "I":
-            continue
 
         nome_muni = muni_obj.get("nome", "Sem Município")
         sigla_uf = uf_obj.get("sigla", "??")
         localidade_completa = f"{nome_muni} - {sigla_uf}"
+        
         nome_sentimento = sent_obj.get("nome", "Não Informado")
+        if str(nome_sentimento).lower().strip() in ["não informado", "nao informado", "none", "null", ""]:
+            nome_sentimento = "Não Informado"
+            
+        nome_cliente = cli_obj.get("nome", "Sem Cliente") if isinstance(cli_obj, dict) else "Sem Cliente"
 
         canal_bruto = orig_obj.get("nome", "Interno")
         if canal_bruto in ["WhatsApp", "Telefonemas", "Emails", "E-mail", "Outros"]:
@@ -95,13 +112,25 @@ def carregar_dados_banco():
         else:
             canal_tratado = canal_bruto
 
+        prioridade_nome = prio_obj.get("nome", "Sem Prioridade")
+        criticidade_nome = prioridade_nome
+        if prioridade_nome.lower() in ["crítica", "critica", "urgente", "alta"]:
+            criticidade_nome = "Crítica"
+        elif prioridade_nome.lower() in ["média", "media"]:
+            criticidade_nome = "Média"
+        elif prioridade_nome.lower() in ["baixa", "normal"]:
+            criticidade_nome = "Baixa"
+
         dados.append({
             "id": r.get("id"),
+            "motivo_id": r.get("motivo_id"),
             "protocolo": r.get("protocolo") or "Sem Protocolo",
             "municipio_uf": localidade_completa,
+            "cliente": nome_cliente,
             "canal_origem": canal_tratado,
             "status": stat_obj.get("nome", "Sem Status"),
-            "prioridade": prio_obj.get("nome", "Sem Prioridade"),
+            "prioridade": prioridade_nome,
+            "criticidade": criticidade_nome,
             "Tipo": moti_obj.get("nome", "Não Informado"), 
             "modulo": mod_obj.get("nome", "Outros") if isinstance(mod_obj, dict) else "Outros",
             "funcionalidade": func_obj.get("nome", "Outros"),
@@ -144,17 +173,34 @@ else:
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
-tipos_disp = ['Bug', 'Configuração', 'Criação', 'Dúvida', 'Erro', 'Externo', 'Incidente', 'Reclamação', 'Solicitação']
+# 1. Dropdown Retrátil para os Tipos de Atendimento (Garante a listagem completa dos 9 ativos usando ID)
+tipos_selecionados_ids = []
+with st.sidebar.expander("Selecionar Tipos"):
+    for item in TIPOS_ATIVOS:
+        if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
+            tipos_selecionados_ids.append(item["id"])
 
-if "Não Informado" in df_raw["Tipo"].unique().tolist():
-    tipos_disp.append("Não Informado")
+# 2. Dropdown Retrátil para as Prioridades (Ordenação estrita: Crítico, Alta, Média, Baixa)
+prioridades_existentes = df_raw["prioridade"].unique().tolist()
+ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3}
+prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
 
-tipos_selecionados = st.sidebar.multiselect(
-    "Tipos:", 
-    options=tipos_disp, 
-    default=tipos_disp,
-    help="Exibindo apenas os motivos marcados com status Ativo na tabela de configurações do banco."
-)
+prioridades_selecionadas = []
+with st.sidebar.expander("Selecionar Prioridades"):
+    for p in prioridades_disp:
+        if st.checkbox(p, value=True, key=f"filter_prio_{p}"):
+            prioridades_selecionadas.append(p)
+
+# 3. Dropdown Retrátil para os Sentimentos (Ordenação estrita: Positivo, Negativo, Não Informado)
+sentimentos_existentes = df_raw["sentimento"].unique().tolist()
+ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
+sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
+
+sentimentos_selecionados = []
+with st.sidebar.expander("Selecionar Sentimentos"):
+    for s in sentimentos_disp:
+        if st.checkbox(s, value=True, key=f"filter_sent_{s}"):
+            sentimentos_selecionados.append(s)
 
 # --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
 df_filtrado = df_raw[
@@ -165,8 +211,20 @@ df_filtrado = df_raw[
 if municipio_selecionado != "Todos":
     df_filtrado = df_filtrado[df_filtrado["municipio_uf"] == municipio_selecionado]
 
-if tipos_selecionados:
-    df_filtrado = df_filtrado[df_filtrado["Tipo"].isin(tipos_selecionados)]
+if tipos_selecionados_ids:
+    df_filtrado = df_filtrado[df_filtrado["motivo_id"].isin(tipos_selecionados_ids)]
+
+if prioridades_selecionadas:
+    df_filtrado = df_filtrado[df_filtrado["prioridade"].isin(prioridades_selecionadas)]
+
+if sentimentos_selecionados:
+    df_filtrado = df_filtrado[df_filtrado["sentimento"].isin(sentimentos_selecionados)]
+
+# Preservamos uma cópia completa com todos os canais para alimentar o gráfico Canais de Origem
+df_filtrado_canais = df_filtrado.copy()
+
+# Filtro estrito: a partir daqui, todo o restante do dashboard exibirá apenas dados de origem externa
+df_filtrado = df_filtrado[df_filtrado["canal_origem"] == "Externo"]
 
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
@@ -185,7 +243,29 @@ col2.metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f
 col3.metric("Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
 st.divider()
 
+PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d4", "#4b5563", "#b91c1c", "#eab308"]
+
 if not df_filtrado.empty:
+    st.subheader("Evolução das Aberturas")
+    if len(tipos_selecionados_ids) == len(TIPOS_ATIVOS) or len(tipos_selecionados_ids) == 0:
+        df_agrupado = df_filtrado.groupby("data_inicio").size().reset_index(name="Volume")
+        df_agrupado["Visão"] = "Todos os Atendimentos"
+        fig_linha = px.line(
+            df_agrupado, x="data_inicio", y="Volume", color="Visão", markers=True,
+            color_discrete_sequence=["#1e40af"]
+        )
+    else:
+        df_agrupado = df_filtrado.groupby(["data_inicio", "Tipo"]).size().reset_index(name="Volume")
+        fig_linha = px.line(
+            df_agrupado, x="data_inicio", y="Volume", color="Tipo", markers=True,
+            color_discrete_sequence=PALETA_DIVERSA
+        )
+        
+    fig_linha.update_layout(hovermode="x unified", xaxis_title="Data de Início", yaxis_title="Tickets")
+    st.plotly_chart(fig_linha, use_container_width=True)
+
+    st.divider()
+
     st.subheader("Principais Tipos de Atendimento")
     col_graf1, col_graf2 = st.columns(2)
 
@@ -193,11 +273,13 @@ if not df_filtrado.empty:
         st.markdown("**Distribuição por Tipo**")
         df_tipos_count = df_filtrado['Tipo'].value_counts().reset_index()
         df_tipos_count.columns = ['Tipo', 'Quantidade']
+        
         fig_tipo = px.bar(
-            df_tipos_count.sort_values(by="Quantidade", ascending=True), 
-            x="Quantidade", y="Tipo", orientation='h', color="Quantidade", color_continuous_scale="Blues"
+            df_tipos_count, 
+            x="Quantidade", y="Tipo", orientation='h', color="Tipo",
+            color_discrete_sequence=PALETA_DIVERSA
         )
-        fig_tipo.update_layout(showlegend=False, height=350, margin=dict(l=0, r=0, t=10, b=0))
+        fig_tipo.update_layout(showlegend=False, height=350, margin=dict(l=0, r=0, t=10, b=0), yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig_tipo, use_container_width=True)
 
     with col_graf2:
@@ -205,54 +287,68 @@ if not df_filtrado.empty:
         df_modulos_count = df_filtrado['modulo'].value_counts().reset_index()
         df_modulos_count.columns = ['Módulo', 'Quantidade']
         fig_modulo = px.pie(
-            df_modulos_count, values="Quantidade", names="Módulo", hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu
+            df_modulos_count, values="Quantidade", names="Módulo", hole=0.4, 
+            color_discrete_sequence=PALETA_DIVERSA
         )
         fig_modulo.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_modulo, use_container_width=True)
 
     st.divider()
 
-    st.subheader("Evolução das Aberturas")
-    if len(tipos_selecionados) == len(tipos_disp) or len(tipos_selecionados) == 0:
-        df_agrupado = df_filtrado.groupby("data_inicio").size().reset_index(name="Volume")
-        df_agrupado["Visão"] = "Todos os Atendimentos"
-        fig_linha = px.line(df_agrupado, x="data_inicio", y="Volume", color="Visão", markers=True)
-    else:
-        df_agrupado = df_filtrado.groupby(["data_inicio", "Tipo"]).size().reset_index(name="Volume")
-        fig_linha = px.line(df_agrupado, x="data_inicio", y="Volume", color="Tipo", markers=True)
-        
-    fig_linha.update_layout(hovermode="x unified", xaxis_title="Data de Início", yaxis_title="Tickets")
-    st.plotly_chart(fig_linha, use_container_width=True)
-
-    st.divider()
-
     st.subheader("Canais e Prioridades")
-    col_crit1, col_crit2 = st.columns(2)
+    prioridades_resumo = df_filtrado["prioridade"].value_counts().reset_index()
+    prioridades_resumo.columns = ["Prioridade", "Quantidade"]
 
-    with col_crit1:
-        st.markdown("**Distribuição de Prioridades por Atendimento**")
-        df_prio_count = df_filtrado['prioridade'].value_counts().reset_index()
-        df_prio_count.columns = ['Prioridade', 'Quantidade']
-        fig_prio = px.pie(df_prio_count, values="Quantidade", names="Prioridade", hole=0.5)
-        fig_prio.update_layout(height=250, margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(fig_prio, use_container_width=True)
+    prioridade_ordem = {"Crítico": 0, "Alta": 1, "Média": 2, "Media": 2, "Baixa": 3}
+    prioridades_resumo["ordem"] = prioridades_resumo["Prioridade"].map(prioridade_ordem).fillna(99)
+    prioridades_resumo = prioridades_resumo.sort_values(["ordem", "Quantidade"], ascending=[True, False]).drop(columns=["ordem"])
 
-    with col_crit2:
-        st.markdown("**Canais de Origem**")
-        df_canais_count = df_filtrado['canal_origem'].value_counts().reset_index()
-        df_canais_count.columns = ['Canal', 'Quantidade']
-        fig_canal = px.bar(
-            df_canais_count, 
-            x="Canal", 
-            y="Quantidade", 
-            color="Canal", 
-            text_auto=True, 
-            color_discrete_map={"Interno": "#3498db", "Outros": "#e67e22", "Externo": "#2ecc71"}
+    col_prioridade, col_canais = st.columns(2)
+
+    with col_prioridade:
+        st.markdown("**Contagem de Prioridades**")
+        fig_prio = px.pie(
+            prioridades_resumo,
+            values="Quantidade",
+            names="Prioridade",
+            hole=0.5,
+            color="Prioridade",
+            color_discrete_map={
+                "Crítico": "#b91c1c",
+                "Alta": "#ef4444",
+                "Média": "#f59e0b",
+                "Media": "#f59e0b",
+                "Baixa": "#10b981",
+                "Sem Prioridade": "#64748b"
+            },
+            category_orders={"Prioridade": ["Crítico", "Alta", "Média", "Baixa", "Sem Prioridade"]}
         )
-        fig_canal.update_layout(height=250, showlegend=False, margin=dict(l=0, r=0, t=10, b=0))
+        fig_prio.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0))
+        st.plotly_chart(fig_prio, use_container_width=True)
+        
+        dict_prio_valores = prioridades_resumo.set_index("Prioridade")["Quantidade"].to_dict()
+        ordem_exibicao_metricas = ["Crítico", "Alta", "Média", "Baixa"]
+        
+        colunas_metricas = st.columns(4)
+        for idx, rotulo_prio in enumerate(ordem_exibicao_metricas):
+            valor_prio = dict_prio_valores.get(rotulo_prio, 0)
+            colunas_metricas[idx].metric(label=rotulo_prio, value=valor_prio)
+
+    with col_canais:
+        st.markdown("**Canais de Origem**")
+        df_canais_count = df_filtrado_canais["canal_origem"].value_counts().reset_index()
+        df_canais_count.columns = ["Canal", "Quantidade"]
+        fig_canal = px.bar(
+            df_canais_count,
+            x="Canal",
+            y="Quantidade",
+            color="Canal",
+            text_auto=True,
+            color_discrete_map={"Interno": "#3b82f6", "Outros": "#f59e0b", "Externo": "#10b981"},
+        )
+        fig_canal.update_layout(height=280, showlegend=False, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_canal, use_container_width=True)
         
-        # Legenda informativa fixa inserida logo abaixo do respectivo grafico de barras
         st.caption(
             "Guia Informativo de Canais:\n\n"
             "* Interno = Tickets abertos pelo Admin\n"
@@ -266,7 +362,7 @@ if not df_filtrado.empty:
     col_tabela, col_inspecao = st.columns([3, 2])
 
     with col_tabela:
-        dados_exibicao = df_filtrado[["protocolo", "municipio_uf", "Tipo", "modulo", "status", "data_inicio"]]
+        dados_exibicao = df_filtrado[["Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].rename(columns={"sentimento": "Avaliação"})
         selecao = st.dataframe(
             dados_exibicao,
             use_container_width=True,
@@ -277,14 +373,18 @@ if not df_filtrado.empty:
 
     with col_inspecao:
         st.markdown("### Detalhes do Registro")
-        if selecao and "rows" in selecao["selection"] and len(selecao["selection"]["rows"]) > 0:
-            idx = selecao["selection"]["rows"][0]
+        selection = selecao.get("selection") if selecao else None
+        rows = selection.get("rows", []) if selection else []
+
+        if rows:
+            idx = rows[0]
             reg = df_filtrado.iloc[idx]
             
             st.success(f"**Protocolo:** `{reg['protocolo']}` | **Status:** `{reg['status']}`")
             st.markdown(f"**Município:** {reg['municipio_uf']} | **Origem:** {reg['canal_origem']}")
-            st.markdown(f"**Tipo:** {reg['tipo']} | **Módulo:** {reg['modulo']}")
+            st.markdown(f"**tipo:** {reg['Tipo']} | **Módulo:** {reg['modulo']}")
             st.markdown(f"**Funcionalidade:** {reg['funcionalidade']} | **Prioridade:** {reg['prioridade']}")
+            st.markdown(f"**Criticidade:** {reg['criticidade']} | **Cliente:** {reg['cliente']}")
             st.markdown(f"**Sentimento:** {reg['sentimento']}")
             st.markdown(f"**Início:** {reg['data_inicio']} | **Fim:** {reg['data_fim'] or 'Em aberto'}")
             
@@ -296,6 +396,6 @@ else:
     st.warning("Nenhum registro encontrado com esses filtros.")
 
 st.divider()
-if st.button("Sair/Bloquear Painel"):
+if st.button("Bloquear Painel"):
     st.session_state.autenticado = False
     st.rerun()
