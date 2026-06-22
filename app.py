@@ -383,7 +383,7 @@ st.divider()
 # =========================================================================
 # SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS)
 # =========================================================================
-st.subheader("Exportação de Atendimentos Externos")
+st.subheader("Exportação de Atendimentos")
 col_exp_1, col_exp_2 = st.columns(2)
 
 with col_exp_1:
