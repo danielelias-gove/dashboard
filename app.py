@@ -420,7 +420,7 @@ with col_exp_1:
     )
 
 with col_exp_2:
-    st.markdown("**Formato de Leitura (Relatório Estratégico)**")
+    st.markdown("**Formato de Leitura (Relatório Rápido)**")
     
     # --- PROCESSAMENTO DOS INDICADORES DO RELATÓRIO ---
     periodo_str = f"{data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}"
@@ -528,7 +528,7 @@ with col_exp_2:
     )
 
     st.download_button(
-        label="📄 Baixar Relatório Sintético em TXT",
+        label="📄 Baixar Relatório Rápido em TXT",
         data=texto_completo.encode('utf-8'),
         file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
         mime="text/plain",
