@@ -536,7 +536,7 @@ with col_exp_2:
     )
 
 # Bloco expansível com botão nativo "Clique para Copiar" do Streamlit
-with st.expander("📋 Clique aqui para visualizar e copiar o relatório rápido"):
+with st.expander("Clique aqui para visualizar e copiar o relatório rápido"):
     st.code(texto_completo, language="text")
     
 st.divider()
