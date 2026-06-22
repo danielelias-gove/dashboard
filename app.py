@@ -401,7 +401,7 @@ st.divider()
 # =========================================================================
 # SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS) - INDENTAÇÃO CORRIGIDA COPIANDO DO ESCOPO GLOBAL
 # =========================================================================
-st.subheader("📦 Exportação de Atendimentos Externos")
+st.subheader("Exportação de Atendimentos Externos")
 col_exp_1, col_exp_2 = st.columns(2)
 
 with col_exp_1:
@@ -412,7 +412,7 @@ with col_exp_1:
     csv_data = df_csv.to_csv(index=False).encode('utf-8')
     
     st.download_button(
-        label="📥 Baixar tudo bruto em CSV",
+        label="Baixar dados brutos em CSV",
         data=csv_data,
         file_name=f"atendimentos_externos_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
         mime="text/csv",
@@ -528,7 +528,7 @@ with col_exp_2:
     )
 
     st.download_button(
-        label="📄 Baixar Relatório Rápido em TXT",
+        label="📄 Baixar relatório rápido em TXT",
         data=texto_completo.encode('utf-8'),
         file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
         mime="text/plain",
