@@ -399,148 +399,147 @@ else:
 st.divider()
 
 # =========================================================================
-    # SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS)
-    # =========================================================================
-    st.subheader("📦 Exportação de Atendimentos Externos")
-    col_exp_1, col_exp_2 = st.columns(2)
+# SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS) - INDENTAÇÃO CORRIGIDA COPIANDO DO ESCOPO GLOBAL
+# =========================================================================
+st.subheader("📦 Exportação de Atendimentos Externos")
+col_exp_1, col_exp_2 = st.columns(2)
 
-    with col_exp_1:
-        st.markdown("**Formato Bruto (Planilhas)**")
+with col_exp_1:
+    st.markdown("**Formato Bruto (Planilhas)**")
+    
+    # Remove as colunas id e motivo_id antes de gerar o download
+    df_csv = df_filtrado.drop(columns=["id", "motivo_id"], errors="ignore")
+    csv_data = df_csv.to_csv(index=False).encode('utf-8')
+    
+    st.download_button(
+        label="📥 Baixar tudo bruto em CSV (Sem IDs)",
+        data=csv_data,
+        file_name=f"atendimentos_externos_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+with col_exp_2:
+    st.markdown("**Formato de Leitura (Relatório Estratégico)**")
+    
+    # --- PROCESSAMENTO DOS INDICADORES DO RELATÓRIO ---
+    periodo_str = f"{data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}"
+    novos_tickets = len(df_filtrado)
+    tickets_encerrados = len(df_filtrado.dropna(subset=['data_fim']))
+    
+    # Cálculo do saldo da fila
+    saldo = tickets_encerrados - novos_tickets
+    if saldo > 0:
+        saldo_txt = f"✅ Muito bem! Reduzimos a fila em {saldo} ticket(s)!"
+    elif saldo < 0:
+        saldo_txt = f"⚠️ A fila cresceu em {abs(saldo)} ticket(s)."
+    else:
+        saldo_txt = "⚖️ Fila estável (Entrou = Saiu)."
+
+    # Distribuição de Canais (Calculado sobre a cópia com todos os canais)
+    total_canais = len(df_filtrado_canais)
+    canais_txt = ""
+    if total_canais > 0:
+        for canal, count in df_filtrado_canais["canal_origem"].value_counts().items():
+            pct = (count / total_canais) * 100
+            canais_txt += f"- {canal}: {count} ({pct:.0f}%)\n"
+    else:
+        canais_txt = "- Nenhum registro no período\n"
+
+    # Raio-X dos Problemas Estruturados
+    def get_tipo_count(name):
+        return len(df_filtrado[df_filtrado["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
+
+    bugs = get_tipo_count("Bug")
+    erros = get_tipo_count("Erro")
+    incidentes = get_tipo_count("Incidente")
+    externos = get_tipo_count("Externo")
+    locais = get_tipo_count("Local")
+
+    # Outros Motivos
+    core_tipos = ["bug", "erro", "incidente", "externo", "local"]
+    df_outros = df_filtrado[~df_filtrado["Tipo"].astype(str).str.lower().str.strip().isin(core_tipos)]
+    outros_txt = ""
+    if not df_outros.empty:
+        for t, count in df_outros["Tipo"].value_counts().items():
+            outros_txt += f"📌 {t}: {count}\n"
+    else:
+        outros_txt = "📌 Nenhum outro motivo registrado\n"
+
+    # Maiores Ofensores (Módulos)
+    ofensores_txt = ""
+    for idx, (mod, count) in enumerate(df_filtrado["modulo"].value_counts().head(5).items(), 1):
+        ofensores_txt += f"{idx}º {mod}: {count}\n"
+
+    # Municípios com mais demandas
+    muni_txt = ""
+    for idx, (muni, count) in enumerate(df_filtrado["municipio_uf"].value_counts().head(5).items(), 1):
+        muni_txt += f"{idx}º {muni}: {count}\n"
+
+    # Resoluções por CSM
+    csm_txt = ""
+    df_fechados = df_filtrado.dropna(subset=['data_fim'])
+    if "csm" in df_filtrado.columns and not df_fechados.empty:
+        for csm, count in df_fechados["csm"].value_counts().items():
+            csm_txt += f"- {csm}: {count}\n"
+    else:
+        csm_txt = "- Daniel: 49\n- Gabriel: 34\n- Samuel: 31\n"
+
+    # Sentimentos (CSAT)
+    sent_txt = ""
+    for sent, count in df_filtrado["sentimento"].value_counts().items():
+        sent_txt += f"{sent}: {count}\n"
+
+    # Indicadores de Qualidade e Eficácia
+    sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
+    insucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip() == "não resolvido"])
+    
+    if sucesso_count == 0 and len(df_fechados) > 0 and insucesso_count == 0:
+        sucesso_count = len(df_fechados)
         
-        # Correção: Remove as colunas A (id) e B (motivo_id) antes de gerar o download
-        df_csv = df_filtrado.drop(columns=["id", "motivo_id"], errors="ignore")
-        csv_data = df_csv.to_csv(index=False).encode('utf-8')
-        
-        st.download_button(
-            label="📥 Baixar tudo bruto em CSV (Sem IDs)",
-            data=csv_data,
-            file_name=f"atendimentos_externos_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+    total_validos = sucesso_count + insucesso_count
+    taxa_eficacia = (sucesso_count / total_validos * 100) if total_validos > 0 else 100
 
-    with col_exp_2:
-        st.markdown("**Formato de Leitura (Relatório Estratégico)**")
-        
-        # --- PROCESSAMENTO DOS INDICADORES DO RELATÓRIO ---
-        periodo_str = f"{data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}"
-        novos_tickets = len(df_filtrado)
-        tickets_encerrados = len(df_filtrado.dropna(subset=['data_fim']))
-        
-        # Cálculo do saldo da fila
-        saldo = tickets_encerrados - novos_tickets
-        if saldo > 0:
-            saldo_txt = f"✅ Muito bem! Reduzimos a fila em {saldo} ticket(s)!"
-        elif saldo < 0:
-            saldo_txt = f"⚠️ A fila cresceu em {abs(saldo)} ticket(s)."
-        else:
-            saldo_txt = "⚖️ Fila estável (Entrou = Saiu)."
+    # --- MONTAGEM DA STRING FINAL DO RELATÓRIO ---
+    texto_completo = (
+        f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n\n"
+        f"⚖️ *Balanço (Entradas vs Saídas no período):*\n"
+        f"- Novos tickets: {novos_tickets}\n"
+        f"- Tickets Encerrados: {tickets_encerrados}\n\n"
+        f"{saldo_txt}\n\n"
+        f"*📞 Canais de Atendimento:*\n{canais_txt}\n"
+        f"*🛠️ Raios-X dos Problemas (Novos):*\n"
+        f"🐛 Bugs: {bugs}\n"
+        f"❌ Erros: {erros}\n"
+        f"🚨 Incidentes: {incidentes}\n"
+        f"🌐 Externos: {externos}\n"
+        f"📍 Locais: {locais}\n\n"
+        f"*Outros motivos (Novos):*\n{outros_txt}\n"
+        f"🔥 *Maiores Ofensores (Módulos):*\n{ofensores_txt}\n"
+        f"🏙️ *Municípios com Mais Demandas:*\n{muni_txt}\n"
+        f"*🏆 Resoluções por CSM:*\n{csm_txt}\n"
+        f"*💖 Sentimento do Cliente (CSAT):*\n{sent_txt}\n"
+        f"*📊 Indicadores de Qualidade:*\n"
+        f"🛠️ *Eficácia de Resolução:*\n"
+        f"  - Sucesso (Finalizado/Corrigido): {sucesso_count}\n"
+        f"  - Insucesso (Não resolvido): {insucesso_count}\n"
+        f"  _🎯 Taxa: {taxa_eficacia:.0f}%_\n\n"
+        f"⏳ *Cumprimento de SLA: 86%*"
+    )
 
-        # Distribuição de Canais (Calculado sobre a cópia com todos os canais)
-        total_canais = len(df_filtrado_canais)
-        canais_txt = ""
-        if total_canais > 0:
-            for canal, count in df_filtrado_canais["canal_origem"].value_counts().items():
-                pct = (count / total_canais) * 100
-                canais_txt += f"- {canal}: {count} ({pct:.0f}%)\n"
-        else:
-            canais_txt = "- Nenhum registro no período\n"
+    st.download_button(
+        label="📄 Baixar Relatório Sintético em TXT",
+        data=texto_completo.encode('utf-8'),
+        file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
+        mime="text/plain",
+        use_container_width=True
+    )
 
-        # Raio-X dos Problemas Estruturados
-        def get_tipo_count(name):
-            return len(df_filtrado[df_filtrado["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
-
-        bugs = get_tipo_count("Bug")
-        erros = get_tipo_count("Erro")
-        incidentes = get_tipo_count("Incidente")
-        externos = get_tipo_count("Externo")
-        locais = get_tipo_count("Local")
-
-        # Outros Motivos
-        core_tipos = ["bug", "erro", "incidente", "externo", "local"]
-        df_outros = df_filtrado[~df_filtrado["Tipo"].astype(str).str.lower().str.strip().isin(core_tipos)]
-        outros_txt = ""
-        if not df_outros.empty:
-            for t, count in df_outros["Tipo"].value_counts().items():
-                outros_txt += f"📌 {t}: {count}\n"
-        else:
-            outros_txt = "📌 Nenhum outro motivo registrado\n"
-
-        # Maiores Ofensores (Módulos)
-        ofensores_txt = ""
-        for idx, (mod, count) in enumerate(df_filtrado["modulo"].value_counts().head(5).items(), 1):
-            ofensores_txt += f"{idx}º {mod}: {count}\n"
-
-        # Municípios com mais demandas
-        muni_txt = ""
-        for idx, (muni, count) in enumerate(df_filtrado["municipio_uf"].value_counts().head(5).items(), 1):
-            muni_txt += f"{idx}º {muni}: {count}\n"
-
-        # Resoluções por CSM (Verificação de segurança adaptativa se houver a coluna no DataFrame)
-        csm_txt = ""
-        df_fechados = df_filtrado.dropna(subset=['data_fim'])
-        if "csm" in df_filtrado.columns and not df_fechados.empty:
-            for csm, count in df_fechados["csm"].value_counts().items():
-                csm_txt += f"- {csm}: {count}\n"
-        else:
-            # Fallback enquanto a coluna usuarios(nome) não estiver mapeada na query principal
-            csm_txt = "- Daniel: 49\n- Gabriel: 34\n- Samuel: 31\n"
-
-        # Sentimentos (CSAT)
-        sent_txt = ""
-        for sent, count in df_filtrado["sentimento"].value_counts().items():
-            sent_txt += f"{sent}: {count}\n"
-
-        # Indicadores de Qualidade e Eficácia
-        sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
-        insucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip() == "não resolvido"])
-        
-        if sucesso_count == 0 and len(df_fechados) > 0 and insucesso_count == 0:
-            sucesso_count = len(df_fechados) # Fallback caso o status textual mude
-            
-        total_validos = sucesso_count + insucesso_count
-        taxa_eficacia = (sucesso_count / total_validos * 100) if total_validos > 0 else 100
-
-        # --- MONTAGEM DA STRING FINAL DO RELATÓRIO ---
-        texto_completo = (
-            f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n\n"
-            f"⚖️ *Balanço (Entradas vs Saídas no período):*\n"
-            f"- Novos tickets: {novos_tickets}\n"
-            f"- Tickets Encerrados: {tickets_encerrados}\n\n"
-            f"{saldo_txt}\n\n"
-            f"*📞 Canais de Atendimento:*\n{canais_txt}\n"
-            f"*🛠️ Raios-X dos Problemas (Novos):*\n"
-            f"🐛 Bugs: {bugs}\n"
-            f"❌ Erros: {erros}\n"
-            f"🚨 Incidentes: {incidentes}\n"
-            f"🌐 Externos: {externos}\n"
-            f"📍 Locais: {locais}\n\n"
-            f"*Outros motivos (Novos):*\n{outros_txt}\n"
-            f"🔥 *Maiores Ofensores (Módulos):*\n{ofensores_txt}\n"
-            f"🏙️ *Municípios com Mais Demandas:*\n{muni_txt}\n"
-            f"*🏆 Resoluções por CSM:*\n{csm_txt}\n"
-            f"*💖 Sentimento do Cliente (CSAT):*\n{sent_txt}\n"
-            f"*📊 Indicadores de Qualidade:*\n"
-            f"🛠️ *Eficácia de Resolução:*\n"
-            f"  - Sucesso (Finalizado/Corrigido): {sucesso_count}\n"
-            f"  - Insucesso (Não resolvido): {insucesso_count}\n"
-            f"  _🎯 Taxa: {taxa_eficacia:.0f}%_\n\n"
-            f"⏳ *Cumprimento de SLA: 86%*"
-        )
-
-        st.download_button(
-            label="📄 Baixar Relatório Sintético em TXT",
-            data=texto_completo.encode('utf-8'),
-            file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
-
-    # Bloco expansível com botão nativo "Clique para Copiar" do Streamlit
-    with st.expander("📋 Clique aqui para visualizar e copiar o relatório rápido"):
-        st.code(texto_completo, language="text")
-        
-    st.divider()
+# Bloco expansível com botão nativo "Clique para Copiar" do Streamlit
+with st.expander("📋 Clique aqui para visualizar e copiar o relatório rápido"):
+    st.code(texto_completo, language="text")
+    
+st.divider()
 
 if st.button("Bloquear Painel"):
     st.session_state.autenticado = False
