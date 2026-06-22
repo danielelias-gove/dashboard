@@ -359,6 +359,62 @@ if not df_filtrado.empty:
 
     st.divider()
 
+    # =========================================================================
+    # SEÇÃO DE EXPORTAÇÃO DE DADOS (APENAS EXTERNOS)
+    # =========================================================================
+    st.subheader("📦 Exportação de Atendimentos Externos")
+    col_exp_1, col_exp_2 = st.columns(2)
+
+    with col_exp_1:
+        st.markdown("**Formato Bruto (Planilhas)**")
+        # Conversão do DataFrame filtrado para CSV bruto
+        csv_data = df_filtrado.to_csv(index=False).encode('utf-8')
+        
+        st.download_button(
+            label="📥 Baixar tudo bruto em CSV",
+            data=csv_data,
+            file_name=f"atendimentos_externos_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    with col_exp_2:
+        st.markdown("**Formato de Leitura (Texto Amigável)**")
+        
+        # Construção do texto estruturado e limpo para leitura/cópia
+        linhas_texto = []
+        for _, row in df_filtrado.iterrows():
+            data_fim_txt = row['data_fim'].strftime('%d/%m/%Y') if pd.notna(row['data_fim']) else "Em aberto"
+            bloco = (
+                f"📌 TICKET ID: {row['id']}\n"
+                f"• Protocolo: {row['protocolo']} | Status: {row['status']}\n"
+                f"• Município: {row['municipio_uf']} | Cliente: {row['cliente']}\n"
+                f"• Tipo de Atendimento: {row['Tipo']} | Módulo: {row['modulo']}\n"
+                f"• Criticidade: {row['criticidade']} (Prioridade Real: {row['prioridade']})\n"
+                f"• Período: {row['data_inicio'].strftime('%d/%m/%Y')} até {data_fim_txt}\n"
+                f"• Histórico/Conversa: {row['historico_conversa']}\n"
+                f"{'='*60}\n"
+            )
+            linhas_texto.append(bloco)
+        
+        texto_completo = "\n".join(linhas_texto) if linhas_texto else "Nenhum registro encontrado."
+
+        # Botão alternativo para baixar em bloco de notas (.txt)
+        st.download_button(
+            label="📄 Baixar Relatório em TXT",
+            data=texto_completo.encode('utf-8'),
+            file_name=f"relatorio_atendimentos_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+    # Janela retrátil com o botão de "Clique para Copiar" nativo do Streamlit
+    with st.expander("📋 Clique aqui para visualizar, copiar ou extrair trechos em texto"):
+        st.caption("Passe o mouse sobre o bloco abaixo e clique no botão de cópia rápido no canto direito:")
+        st.code(texto_completo, language="text")
+        
+    st.divider()
+    
     st.subheader("Tabela Geral de Registros")
     col_tabela, col_inspecao = st.columns([3, 2])
 
