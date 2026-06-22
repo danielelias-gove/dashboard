@@ -412,7 +412,7 @@ with col_exp_1:
     csv_data = df_csv.to_csv(index=False).encode('utf-8')
     
     st.download_button(
-        label="📥 Baixar tudo bruto em CSV (Sem IDs)",
+        label="📥 Baixar tudo bruto em CSV",
         data=csv_data,
         file_name=f"atendimentos_externos_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
         mime="text/csv",
@@ -515,7 +515,7 @@ with col_exp_2:
         f"🌐 Externos: {externos}\n"
         f"📍 Locais: {locais}\n\n"
         f"*Outros motivos (Novos):*\n{outros_txt}\n"
-        f"🔥 *Maiores Ofensores (Módulos):*\n{ofensores_txt}\n"
+        f"🔥 *Módulos com Mais Demandas:*\n{ofensores_txt}\n"
         f"🏙️ *Municípios com Mais Demandas:*\n{muni_txt}\n"
         f"*🏆 Resoluções por CSM:*\n{csm_txt}\n"
         f"*💖 Sentimento do Cliente (CSAT):*\n{sent_txt}\n"
