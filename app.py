@@ -10,21 +10,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. SISTEMA DE SEGURANÇA
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-
-if not st.session_state.autenticado:
-    st.title("Acesso Restrito")
-    senha = st.text_input("Digite a senha de acesso da equipe:", type="password")
-    if st.button("Entrar"):
-        if senha == "gove2026": 
-            st.session_state.autenticado = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta. Acesso negado.")
-    st.stop()
-
 # Lista estática dos 9 motivos ativos do sistema para exibição íntegra no menu
 TIPOS_ATIVOS = [
     {"id": 1, "nome": "Configuração"},
@@ -39,7 +24,7 @@ TIPOS_ATIVOS = [
     {"id": 13, "nome": "Externo"}
 ]
 
-# 3. CONEXÃO COM O SUPABASE
+# 2. CONEXÃO COM O SUPABASE
 @st.cache_resource
 def iniciar_conexao():
     url: str = st.secrets["supabase"]["url"]
@@ -48,7 +33,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 4. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO
+# 3. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -174,14 +159,14 @@ else:
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
-# 1. Dropdown Retrátil para os Tipos de Atendimento (Garante a listagem completa dos 9 ativos usando ID)
+# 1. Dropdown Retrátil para os Tipos de Atendimento
 tipos_selecionados_ids = []
 with st.sidebar.expander("Selecionar Tipos"):
     for item in TIPOS_ATIVOS:
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
-# 2. Dropdown Retrátil para as Prioridades (Ordenação estrita: Crítico, Alta, Média, Baixa)
+# 2. Dropdown Retrátil para as Prioridades
 prioridades_existentes = df_raw["prioridade"].unique().tolist()
 ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
@@ -192,7 +177,7 @@ with st.sidebar.expander("Selecionar Prioridades"):
         if st.checkbox(p, value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
-# 3. Dropdown Retrátil para os Sentimentos (Ordenação estrita: Positivo, Negativo, Não Informado)
+# 3. Dropdown Retrátil para os Sentimentos
 sentimentos_existentes = df_raw["sentimento"].unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
@@ -221,10 +206,7 @@ if prioridades_selecionadas:
 if sentimentos_selecionados:
     df_filtrado = df_filtrado[df_filtrado["sentimento"].isin(sentimentos_selecionados)]
 
-# Preservamos uma cópia completa com todos os canais para alimentar o gráfico Canais de Origem
 df_filtrado_canais = df_filtrado.copy()
-
-# Filtro estrito: a partir daqui, todo o restante do dashboard exibirá apenas dados de origem externa
 df_filtrado = df_filtrado[df_filtrado["canal_origem"] == "Externo"]
 
 # =========================================================================
@@ -399,7 +381,7 @@ else:
 st.divider()
 
 # =========================================================================
-# SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS) - INDENTAÇÃO CORRIGIDA COPIANDO DO ESCOPO GLOBAL
+# SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS)
 # =========================================================================
 st.subheader("Exportação de Atendimentos Externos")
 col_exp_1, col_exp_2 = st.columns(2)
@@ -407,7 +389,6 @@ col_exp_1, col_exp_2 = st.columns(2)
 with col_exp_1:
     st.markdown("**Formato Bruto (Planilhas)**")
     
-    # Remove as colunas id e motivo_id antes de gerar o download
     df_csv = df_filtrado.drop(columns=["id", "motivo_id"], errors="ignore")
     csv_data = df_csv.to_csv(index=False).encode('utf-8')
     
@@ -422,12 +403,10 @@ with col_exp_1:
 with col_exp_2:
     st.markdown("**Formato de Leitura (Relatório Rápido)**")
     
-    # --- PROCESSAMENTO DOS INDICADORES DO RELATÓRIO ---
     periodo_str = f"{data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}"
     novos_tickets = len(df_filtrado)
     tickets_encerrados = len(df_filtrado.dropna(subset=['data_fim']))
     
-    # Cálculo do saldo da fila
     saldo = tickets_encerrados - novos_tickets
     if saldo > 0:
         saldo_txt = f"✅ Muito bem! Reduzimos a fila em {saldo} ticket(s)!"
@@ -436,7 +415,6 @@ with col_exp_2:
     else:
         saldo_txt = "⚖️ Fila estável (Entrou = Saiu)."
 
-    # Distribuição de Canais (Calculado sobre a cópia com todos os canais)
     total_canais = len(df_filtrado_canais)
     canais_txt = ""
     if total_canais > 0:
@@ -446,7 +424,6 @@ with col_exp_2:
     else:
         canais_txt = "- Nenhum registro no período\n"
 
-    # Raio-X dos Problemas Estruturados
     def get_tipo_count(name):
         return len(df_filtrado[df_filtrado["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
 
@@ -456,7 +433,6 @@ with col_exp_2:
     externos = get_tipo_count("Externo")
     locais = get_tipo_count("Local")
 
-    # Outros Motivos
     core_tipos = ["bug", "erro", "incidente", "externo", "local"]
     df_outros = df_filtrado[~df_filtrado["Tipo"].astype(str).str.lower().str.strip().isin(core_tipos)]
     outros_txt = ""
@@ -466,17 +442,14 @@ with col_exp_2:
     else:
         outros_txt = "📌 Nenhum outro motivo registrado\n"
 
-    # Maiores Ofensores (Módulos)
     ofensores_txt = ""
     for idx, (mod, count) in enumerate(df_filtrado["modulo"].value_counts().head(5).items(), 1):
         ofensores_txt += f"{idx}º {mod}: {count}\n"
 
-    # Municípios com mais demandas
     muni_txt = ""
     for idx, (muni, count) in enumerate(df_filtrado["municipio_uf"].value_counts().head(5).items(), 1):
         muni_txt += f"{idx}º {muni}: {count}\n"
 
-    # Resoluções por CSM
     csm_txt = ""
     df_fechados = df_filtrado.dropna(subset=['data_fim'])
     if "csm" in df_filtrado.columns and not df_fechados.empty:
@@ -485,12 +458,10 @@ with col_exp_2:
     else:
         csm_txt = "- Daniel: 49\n- Gabriel: 34\n- Samuel: 31\n"
 
-    # Sentimentos (CSAT)
     sent_txt = ""
     for sent, count in df_filtrado["sentimento"].value_counts().items():
         sent_txt += f"{sent}: {count}\n"
 
-    # Indicadores de Qualidade e Eficácia
     sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
     insucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip() == "não resolvido"])
     
@@ -500,7 +471,6 @@ with col_exp_2:
     total_validos = sucesso_count + insucesso_count
     taxa_eficacia = (sucesso_count / total_validos * 100) if total_validos > 0 else 100
 
-    # --- MONTAGEM DA STRING FINAL DO RELATÓRIO ---
     texto_completo = (
         f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n\n"
         f"⚖️ *Balanço (Entradas vs Saídas no período):*\n"
@@ -515,8 +485,8 @@ with col_exp_2:
         f"🌐 Externos: {externos}\n"
         f"📍 Locais: {locais}\n\n"
         f"*Outros motivos (Novos):*\n{outros_txt}\n"
-        f"🔥 *Módulos com Mais Atendimentos:*\n{ofensores_txt}\n"
-        f"🏙️ *Municípios com Mais Atendimentos:*\n{muni_txt}\n"
+        f"🔥 *Módulos com Mais Demandas:*\n{ofensores_txt}\n"
+        f"🏙️ *Municípios com Mais Demandas:*\n{muni_txt}\n"
         f"*🏆 Resoluções por CSM:*\n{csm_txt}\n"
         f"*💖 Sentimento do Cliente (CSAT):*\n{sent_txt}\n"
         f"*📊 Indicadores de Qualidade:*\n"
@@ -535,12 +505,7 @@ with col_exp_2:
         use_container_width=True
     )
 
-# Bloco expansível com botão nativo "Clique para Copiar" do Streamlit
 with st.expander("Clique aqui para visualizar e copiar o relatório rápido"):
     st.code(texto_completo, language="text")
     
 st.divider()
-
-if st.button("Bloquear Painel"):
-    st.session_state.autenticado = False
-    st.rerun()
