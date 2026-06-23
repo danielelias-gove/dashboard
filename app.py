@@ -33,7 +33,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API (Lê o Schema isolado usando a chave anon)
+# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API (Corrigida a ordem do schema)
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -41,9 +41,10 @@ def carregar_dados_banco():
     start_index = 0
     
     while True:
-        # Acessa a View plana apontando explicitamente para o schema 'dashboard_api'
-        response = supabase.table("acoes").select("*") \
-            .schema("dashboard_api") \
+        # CORREÇÃO: O .schema("dashboard_api") vem ANTES do .table("acoes")
+        response = supabase.schema("dashboard_api") \
+            .table("acoes") \
+            .select("*") \
             .range(start_index, start_index + chunk_size - 1) \
             .execute()
         
