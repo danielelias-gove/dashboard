@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from supabase import create_client, Client
 import datetime
 
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -24,50 +23,25 @@ TIPOS_ATIVOS = [
     {"id": 13, "nome": "Externo"}
 ]
 
-# 2. CONEXÃO COM O SUPABASE
-@st.cache_resource
-def iniciar_conexao():
-    url: str = st.secrets["supabase"]["url"]
-    key: str = st.secrets["supabase"]["key"]
-    return create_client(url, key)
-
-supabase = iniciar_conexao()
-
-# 3. FUNÇÃO DE ALTA PERFORMANCE PARA CARREGAR DADOS FLUIDOS E PROTEGIDOS
+# 2. FUNÇÃO DE ALTA PERFORMANCE VIA CONEXÃO SQL DIRETA (Lê o [connections.postgresql])
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
-    dados_completos = []
-    chunk_size = 1000
-    start_index = 0
+    # Inicializa o conector nativo de banco de dados do Streamlit
+    conn = st.connection("postgresql", type="sql")
     
-    while True:
-        # Acessa diretamente a estrutura plana no schema isolado de auditoria externa
-        response = supabase.table("acoes").select("*") \
-            .schema("dashboard_api") \
-            .range(start_index, start_index + chunk_size - 1) \
-            .execute()
-        
-        if not response.data:
-            break
-            
-        dados_completos.extend(response.data)
-        if len(response.data) < chunk_size:
-            break
-        start_index += chunk_size
+    # Executa a query em lote direto na View protegida do seu schema isolado
+    df = conn.query("SELECT * FROM dashboard_api.acoes;", ttl="5m")
     
-    if not dados_completos:
+    if df.empty:
         st.error("A tabela de ações retornou vazia. Verifique seu banco de dados.")
         st.stop()
         
-    # Processamento Direto do DataFrame (Zero laços 'for' repetitivos de dicionários)
-    df = pd.DataFrame(dados_completos)
-    
-    # Padronização de nomes e tratamento temporal nativo do Pandas
+    # Padronização de nomes de colunas vindo do Postgres e tratamento de datas
     df = df.rename(columns={"tipo": "Tipo"})
-    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
-    df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
+    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw']).dt.date
+    df['data_fim'] = pd.to_datetime(df['data_fim_raw']).dt.date
     
-    # Elimina as colunas temporárias de marcação crua
+    # Limpa as colunas de data brutas que não serão mais usadas no front
     df = df.drop(columns=['data_inicio_raw', 'data_fim_raw'], errors='ignore')
     df = df.dropna(subset=['data_inicio'])
     return df
@@ -317,7 +291,7 @@ else:
 st.divider()
 
 # =========================================================================
-# SEÇÃO DE EXPORTAÇÃO DE DADOS ATUALIZADA (APENAS EXTERNOS)
+# SEÇÃO DE EXPORTAÇÃO DE DADOS
 # =========================================================================
 st.subheader("Exportação de Atendimentos")
 col_exp_1, col_exp_2 = st.columns(2)
@@ -325,7 +299,6 @@ col_exp_1, col_exp_2 = st.columns(2)
 with col_exp_1:
     st.markdown("**Formato Bruto (Planilhas)**")
     
-    # Remove as colunas id e motivo_id estruturais que já estão limpas pela View
     df_csv = df_filtrado.drop(columns=["id", "motivo_id"], errors="ignore")
     csv_data = df_csv.to_csv(index=False).encode('utf-8')
     
