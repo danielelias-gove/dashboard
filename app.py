@@ -456,6 +456,9 @@ with col_exp_2:
     for sent, count in df_filtrado["sentimento"].value_counts().items():
         sent_txt += f"{sent}: {count}\n"
 
+    # FIX: Inicialização resgatada para mapear os tickets finalizados do filtro!
+    df_fechados = df_filtrado.dropna(subset=['data_fim'])
+
     sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
     insucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip() == "não resolvido"])
     
