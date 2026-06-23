@@ -41,8 +41,9 @@ def carregar_dados_banco():
     start_index = 0
     
     while True:
-        response = supabase.table("acoes").select(
-            "id, chamado, protocolo, inicio, fim, observacoes, motivo_id, "
+        # Altere de .table("acoes") para .table("dashboard_acoes")
+        response = supabase.table("dashboard_acoes").select(
+            "id, chamado, protocolo, inicio, fim, motivo_id, " # Removido 'observacoes' daqui
             "municipios(nome, uf:uf_id(sigla)), "
             "clientes(nome), "
             "motivos(id, nome, status), "  
