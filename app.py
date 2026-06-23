@@ -33,7 +33,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 3. FUNÇÃO PARA PUXAR DADOS REAIS DO BANCO
+# 3. FUNÇÃO DE ALTA PERFORMANCE PARA CARREGAR DADOS FLUIDOS E PROTEGIDOS
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -41,18 +41,11 @@ def carregar_dados_banco():
     start_index = 0
     
     while True:
-        # FIX: Incluído 'descricao_inicial' no select para que o dado venha da View
-        response = supabase.table("dashboard_acoes").select(
-            "id, chamado, protocolo, inicio, fim, motivo_id, descricao_inicial, "
-            "municipios(nome, uf:uf_id(sigla)), "
-            "clientes(nome), "
-            "motivos(id, nome, status), "  
-            "funcionalidades(nome, modulos(nome)), "
-            "origens(nome), "
-            "status(nome), "
-            "prioridades(nome), "
-            "sentimentos(nome)"  
-        ).range(start_index, start_index + chunk_size - 1).execute()
+        # Acessa diretamente a estrutura plana no schema isolado de auditoria externa
+        response = supabase.table("acoes").select("*") \
+            .schema("dashboard_api") \
+            .range(start_index, start_index + chunk_size - 1) \
+            .execute()
         
         if not response.data:
             break
@@ -66,71 +59,16 @@ def carregar_dados_banco():
         st.error("A tabela de ações retornou vazia. Verifique seu banco de dados.")
         st.stop()
         
-    dados = []
-    for r in dados_completos:
-        muni_obj = r.get("municipios") or {}
-        uf_obj = muni_obj.get("uf") or {} if isinstance(muni_obj, dict) else {}
-        
-        moti_obj = r.get("motivos") or {}
-        orig_obj = r.get("origens") or {}
-        stat_obj = r.get("status") or {}
-        prio_obj = r.get("prioridades") or {}
-        sent_obj = r.get("sentimentos") or {}
-        cli_obj = r.get("clientes") or {}
-        
-        func_obj = r.get("funcionalidades") or {}
-        mod_obj = func_obj.get("modulos") if isinstance(func_obj, dict) else {}
-
-        nome_muni = muni_obj.get("nome", "Sem Município")
-        sigla_uf = uf_obj.get("sigla", "??")
-        localidade_completa = f"{nome_muni} - {sigla_uf}"
-        
-        nome_sentimento = sent_obj.get("nome", "Não Informado")
-        if str(nome_sentimento).lower().strip() in ["não informado", "nao informado", "none", "null", ""]:
-            nome_sentimento = "Não Informado"
-            
-        nome_cliente = cli_obj.get("nome", "Sem Cliente") if isinstance(cli_obj, dict) else "Sem Cliente"
-
-        canal_bruto = orig_obj.get("nome", "Interno")
-        if canal_bruto in ["WhatsApp", "Telefonemas", "Emails", "E-mail", "Outros"]:
-            canal_tratado = "Outros"
-        elif canal_bruto == "Externo":
-            canal_tratado = "Externo"
-        else:
-            canal_tratado = canal_bruto
-
-        prioridade_nome = prio_obj.get("nome", "Sem Prioridade")
-        criticidade_nome = prioridade_nome
-        if prioridade_nome.lower() in ["crítica", "critica", "urgente", "alta"]:
-            criticidade_nome = "Crítica"
-        elif prioridade_nome.lower() in ["média", "media"]:
-            criticidade_nome = "Média"
-        elif prioridade_nome.lower() in ["baixa", "normal"]:
-            criticidade_nome = "Baixa"
-
-        dados.append({
-            "id": r.get("id"),
-            "motivo_id": r.get("motivo_id"),
-            "protocolo": r.get("protocolo") or "Sem Protocolo",
-            "municipio_uf": localidade_completa,
-            "cliente": nome_cliente,
-            "canal_origem": canal_tratado,
-            "status": stat_obj.get("nome", "Sem Status"),
-            "prioridade": prioridade_nome,
-            "criticidade": criticidade_nome,
-            "Tipo": moti_obj.get("nome", "Não Informado"), 
-            "modulo": mod_obj.get("nome", "Outros") if isinstance(mod_obj, dict) else "Outros",
-            "funcionalidade": func_obj.get("nome", "Outros"),
-            "sentimento": nome_sentimento,
-            "data_inicio": r.get("inicio"), 
-            "data_fim": r.get("fim"),       
-            "historico_conversa": r.get("descricao_inicial") or "Sem descrição inicial registrada."
-        })
+    # Processamento Direto do DataFrame (Zero laços 'for' repetitivos de dicionários)
+    df = pd.DataFrame(dados_completos)
     
-    df = pd.DataFrame(dados)
+    # Padronização de nomes e tratamento temporal nativo do Pandas
+    df = df.rename(columns={"tipo": "Tipo"})
+    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
+    df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     
-    df['data_inicio'] = pd.to_datetime(df['data_inicio'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
-    df['data_fim'] = pd.to_datetime(df['data_fim'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
+    # Elimina as colunas temporárias de marcação crua
+    df = df.drop(columns=['data_inicio_raw', 'data_fim_raw'], errors='ignore')
     df = df.dropna(subset=['data_inicio'])
     return df
 
@@ -160,14 +98,12 @@ else:
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
-# 1. Dropdown Retrátil para os Tipos de Atendimento
 tipos_selecionados_ids = []
 with st.sidebar.expander("Selecionar Tipos"):
     for item in TIPOS_ATIVOS:
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
-# 2. Dropdown Retrátil para as Prioridades
 prioridades_existentes = df_raw["prioridade"].unique().tolist()
 ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
@@ -178,7 +114,6 @@ with st.sidebar.expander("Selecionar Prioridades"):
         if st.checkbox(p, value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
-# 3. Dropdown Retrátil para os Sentimentos
 sentimentos_existentes = df_raw["sentimento"].unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
@@ -390,6 +325,7 @@ col_exp_1, col_exp_2 = st.columns(2)
 with col_exp_1:
     st.markdown("**Formato Bruto (Planilhas)**")
     
+    # Remove as colunas id e motivo_id estruturais que já estão limpas pela View
     df_csv = df_filtrado.drop(columns=["id", "motivo_id"], errors="ignore")
     csv_data = df_csv.to_csv(index=False).encode('utf-8')
     
@@ -494,7 +430,7 @@ with col_exp_2:
     st.download_button(
         label="Baixar relatório rápido em TXT",
         data=texto_completo.encode('utf-8'),
-        file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
+        file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
         mime="text/plain",
         use_container_width=True
     )
