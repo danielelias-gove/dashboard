@@ -41,9 +41,9 @@ def carregar_dados_banco():
     start_index = 0
     
     while True:
-        # Altere de .table("acoes") para .table("dashboard_acoes")
+        # FIX: Incluído 'descricao_inicial' no select para que o dado venha da View
         response = supabase.table("dashboard_acoes").select(
-            "id, chamado, protocolo, inicio, fim, motivo_id, " # Removido 'observacoes' daqui
+            "id, chamado, protocolo, inicio, fim, motivo_id, descricao_inicial, "
             "municipios(nome, uf:uf_id(sigla)), "
             "clientes(nome), "
             "motivos(id, nome, status), "  
@@ -124,7 +124,6 @@ def carregar_dados_banco():
             "sentimento": nome_sentimento,
             "data_inicio": r.get("inicio"), 
             "data_fim": r.get("fim"),       
-            # Altere esta linha dentro do laço for:
             "historico_conversa": r.get("descricao_inicial") or "Sem descrição inicial registrada."
         })
     
@@ -456,7 +455,6 @@ with col_exp_2:
     for sent, count in df_filtrado["sentimento"].value_counts().items():
         sent_txt += f"{sent}: {count}\n"
 
-    # FIX: Inicialização resgatada para mapear os tickets finalizados do filtro!
     df_fechados = df_filtrado.dropna(subset=['data_fim'])
 
     sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
