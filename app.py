@@ -450,14 +450,6 @@ with col_exp_2:
     for idx, (muni, count) in enumerate(df_filtrado["municipio_uf"].value_counts().head(5).items(), 1):
         muni_txt += f"{idx}º {muni}: {count}\n"
 
-    csm_txt = ""
-    df_fechados = df_filtrado.dropna(subset=['data_fim'])
-    if "csm" in df_filtrado.columns and not df_fechados.empty:
-        for csm, count in df_fechados["csm"].value_counts().items():
-            csm_txt += f"- {csm}: {count}\n"
-    else:
-        csm_txt = "- Daniel: 49\n- Gabriel: 34\n- Samuel: 31\n"
-
     sent_txt = ""
     for sent, count in df_filtrado["sentimento"].value_counts().items():
         sent_txt += f"{sent}: {count}\n"
@@ -487,7 +479,6 @@ with col_exp_2:
         f"*Outros motivos (Novos):*\n{outros_txt}\n"
         f"🔥 *Módulos com Mais Demandas:*\n{ofensores_txt}\n"
         f"🏙️ *Municípios com Mais Demandas:*\n{muni_txt}\n"
-        f"*🏆 Resoluções por CSM:*\n{csm_txt}\n"
         f"*💖 Sentimento do Cliente (CSAT):*\n{sent_txt}\n"
         f"*📊 Indicadores de Qualidade:*\n"
         f"🛠️ *Eficácia de Resolução:*\n"
