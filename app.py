@@ -124,7 +124,8 @@ def carregar_dados_banco():
             "sentimento": nome_sentimento,
             "data_inicio": r.get("inicio"), 
             "data_fim": r.get("fim"),       
-            "historico_conversa": r.get("observacoes") or "Sem observações registradas."
+            # Altere esta linha dentro do laço for:
+            "historico_conversa": r.get("descricao_inicial") or "Sem descrição inicial registrada."
         })
     
     df = pd.DataFrame(dados)
