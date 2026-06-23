@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from supabase import create_client, Client
 import datetime
 
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -23,23 +24,48 @@ TIPOS_ATIVOS = [
     {"id": 13, "nome": "Externo"}
 ]
 
-# 2. FUNÇÃO DE ALTA PERFORMANCE VIA CONEXÃO SQL DIRETA (Lê o [connections.postgresql])
+# 2. CONEXÃO COM O SUPABASE (Utiliza a anon_key configurada nos secrets)
+@st.cache_resource
+def iniciar_conexao():
+    url: str = st.secrets["supabase"]["url"]
+    key: str = st.secrets["supabase"]["key"]
+    return create_client(url, key)
+
+supabase = iniciar_conexao()
+
+# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API (Lê o Schema isolado usando a chave anon)
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
-    # Inicializa o conector nativo de banco de dados do Streamlit
-    conn = st.connection("postgresql", type="sql")
+    dados_completos = []
+    chunk_size = 1000
+    start_index = 0
     
-    # Executa a query em lote direto na View protegida do seu schema isolado
-    df = conn.query("SELECT * FROM dashboard_api.acoes;", ttl="5m")
+    while True:
+        # Acessa a View plana apontando explicitamente para o schema 'dashboard_api'
+        response = supabase.table("acoes").select("*") \
+            .schema("dashboard_api") \
+            .range(start_index, start_index + chunk_size - 1) \
+            .execute()
+        
+        if not response.data:
+            break
+            
+        dados_completos.extend(response.data)
+        if len(response.data) < chunk_size:
+            break
+        start_index += chunk_size
     
-    if df.empty:
+    if not dados_completos:
         st.error("A tabela de ações retornou vazia. Verifique seu banco de dados.")
         st.stop()
         
-    # Padronização de nomes de colunas vindo do Postgres e tratamento de datas
+    # Transforma o JSON retornado em um DataFrame plano
+    df = pd.DataFrame(dados_completos)
+    
+    # Padronização de nomes de colunas vindo do Postgres e tratamento seguro de datas
     df = df.rename(columns={"tipo": "Tipo"})
-    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw']).dt.date
-    df['data_fim'] = pd.to_datetime(df['data_fim_raw']).dt.date
+    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
+    df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     
     # Limpa as colunas de data brutas que não serão mais usadas no front
     df = df.drop(columns=['data_inicio_raw', 'data_fim_raw'], errors='ignore')
@@ -403,7 +429,7 @@ with col_exp_2:
     st.download_button(
         label="Baixar relatório rápido em TXT",
         data=texto_completo.encode('utf-8'),
-        file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.csv",
+        file_name=f"relatorio_sintetico_{datetime.date.today().strftime('%d_%m_%Y')}.txt",
         mime="text/plain",
         use_container_width=True
     )
