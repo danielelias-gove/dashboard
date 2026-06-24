@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Lista estática dos 9 motivos ativos do sistema para exibição íntegra no menu
+# Lista estática dos motivos ativos do sistema para exibição íntegra no menu
 TIPOS_ATIVOS = [
     {"id": 1, "nome": "Configuração"},
     {"id": 2, "nome": "Criação"},
@@ -34,7 +34,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API (Corrigida a ordem do schema)
+# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -42,7 +42,6 @@ def carregar_dados_banco():
     start_index = 0
     
     while True:
-        # CORREÇÃO: O .schema("dashboard_api") vem ANTES do .table("acoes")
         response = supabase.schema("dashboard_api") \
             .table("acoes") \
             .select("*") \
@@ -61,7 +60,6 @@ def carregar_dados_banco():
         st.error("A tabela de ações retornou vazia. Verifique seu banco de dados.")
         st.stop()
         
-    # Transforma o JSON retornado em um DataFrame plano
     df = pd.DataFrame(dados_completos)
     
     # Padronização de nomes de colunas vindo do Postgres e tratamento seguro de datas
@@ -69,7 +67,6 @@ def carregar_dados_banco():
     df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
     
-    # Limpa as colunas de data brutas que não serão mais usadas no front
     df = df.drop(columns=['data_inicio_raw', 'data_fim_raw'], errors='ignore')
     df = df.dropna(subset=['data_inicio'])
     return df
@@ -145,7 +142,9 @@ if sentimentos_selecionados:
     df_filtrado = df_filtrado[df_filtrado["sentimento"].isin(sentimentos_selecionados)]
 
 df_filtrado_canais = df_filtrado.copy()
-df_filtrado = df_filtrado[df_filtrado["canal_origem"] == "Externo"]
+
+# CORREÇÃO CRÍTICA: Permite a visualização do canal 'Externo' E também de qualquer ticket cujo Tipo seja 'Local'
+df_filtrado = df_filtrado[(df_filtrado["canal_origem"] == "Externo") | (df_filtrado["Tipo"] == "Local")]
 
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
