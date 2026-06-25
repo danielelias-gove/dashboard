@@ -25,7 +25,7 @@ TIPOS_ATIVOS = [
     {"id": 13, "nome": "Externo"}
 ]
 
-# 2. CONEXÃO COM O SUPABASE (Utiliza a anon_key configurada nos secrets)
+# 2. CONEXÃO COM O SUPABASE
 @st.cache_resource
 def iniciar_conexao():
     url: str = st.secrets["supabase"]["url"]
@@ -34,7 +34,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API
+# 3. FUNÇÃO DE CARREGAMENTO (Corrigida para evitar corrupção de cache)
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -61,11 +61,12 @@ def carregar_dados_banco():
         st.stop()
         
     df = pd.DataFrame(dados_completos)
-    
-    # Padronização de nomes de colunas vindo do Postgres e tratamento seguro de datas
     df = df.rename(columns={"tipo": "Tipo"})
-    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
-    df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce').dt.date
+    
+    # CORREÇÃO: Mantém o formato Timestamp nativo do Pandas (seguro contra falhas de Cache)
+    # Removemos o fuso horário (tz_localize(None)) para evitar conflitos de comparação
+    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'], errors='coerce').dt.tz_localize(None)
+    df['data_fim'] = pd.to_datetime(df['data_fim_raw'], errors='coerce').dt.tz_localize(None)
     
     df = df.drop(columns=['data_inicio_raw', 'data_fim_raw'], errors='ignore')
     df = df.dropna(subset=['data_inicio'])
@@ -78,8 +79,9 @@ df_raw = carregar_dados_banco()
 # =========================================================================
 st.sidebar.header("Painel de Filtros")
 
-data_min = df_raw["data_inicio"].min()
-data_max = df_raw["data_inicio"].max()
+# Extrai os limites de data apenas para configurar o calendário
+data_min = df_raw["data_inicio"].min().date()
+data_max = df_raw["data_inicio"].max().date()
 
 datas_selecionadas = st.sidebar.date_input(
     "Selecione o período (Data de Início):",
@@ -94,7 +96,7 @@ elif len(datas_selecionadas) == 1:
 else:
     data_inicio, data_fim = datas_selecionadas
 
-# Garantindo que nulls não quebrem a lista de municípios
+# Garantindo que nulls não quebrem a lista
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
@@ -104,7 +106,6 @@ with st.sidebar.expander("Selecionar Tipos"):
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
-# --- CORREÇÃO: Tratamento de valores Nulos na Prioridade ---
 prioridades_existentes = df_raw["prioridade"].fillna("Sem Prioridade").unique().tolist()
 ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3, "sem prioridade": 4}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
@@ -112,11 +113,9 @@ prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento
 prioridades_selecionadas = []
 with st.sidebar.expander("Selecionar Prioridades"):
     for p in prioridades_disp:
-        # st.checkbox exige String como label
         if st.checkbox(str(p), value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
-# --- CORREÇÃO: Tratamento de valores Nulos no Sentimento ---
 sentimentos_existentes = df_raw["sentimento"].fillna("Não Informado").unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
@@ -124,14 +123,18 @@ sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento
 sentimentos_selecionados = []
 with st.sidebar.expander("Selecionar Sentimentos"):
     for s in sentimentos_disp:
-        # st.checkbox exige String como label
         if st.checkbox(str(s), value=True, key=f"filter_sent_{s}"):
             sentimentos_selecionados.append(s)
 
-# --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
+# --- CORREÇÃO DO FILTRO DE DATA ---
+# Converte a data do calendário de volta para Timestamp. 
+# O dt_fim recebe 23:59:59 para garantir que pegamos os tickets do último dia inteiro.
+dt_inicio_filtro = pd.to_datetime(data_inicio)
+dt_fim_filtro = pd.to_datetime(data_fim) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+
 df_filtrado = df_raw[
-    (df_raw["data_inicio"] >= data_inicio) & 
-    (df_raw["data_inicio"] <= data_fim)
+    (df_raw["data_inicio"] >= dt_inicio_filtro) & 
+    (df_raw["data_inicio"] <= dt_fim_filtro)
 ]
 
 if municipio_selecionado != "Todos":
@@ -150,6 +153,7 @@ df_filtrado_canais = df_filtrado.copy()
 
 # Permite a visualização do canal 'Externo' E também de qualquer ticket cujo Tipo seja 'Local'
 df_filtrado = df_filtrado[(df_filtrado["canal_origem"] == "Externo") | (df_filtrado["Tipo"] == "Local")]
+
 
 # =========================================================================
 # RENDERIZAÇÃO DA INTERFACE
@@ -172,17 +176,22 @@ PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d
 
 if not df_filtrado.empty:
     st.subheader("Evolução das Aberturas")
+    
+    # Criamos uma coluna temporária apenas com a data (sem as horas) para agrupar corretamente no gráfico
+    df_filtrado_plot = df_filtrado.copy()
+    df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].dt.date
+    
     if len(tipos_selecionados_ids) == len(TIPOS_ATIVOS) or len(tipos_selecionados_ids) == 0:
-        df_agrupado = df_filtrado.groupby("data_inicio").size().reset_index(name="Volume")
+        df_agrupado = df_filtrado_plot.groupby("data_grafico").size().reset_index(name="Volume")
         df_agrupado["Visão"] = "Todos os Atendimentos"
         fig_linha = px.line(
-            df_agrupado, x="data_inicio", y="Volume", color="Visão", markers=True,
+            df_agrupado, x="data_grafico", y="Volume", color="Visão", markers=True,
             color_discrete_sequence=["#1e40af"]
         )
     else:
-        df_agrupado = df_filtrado.groupby(["data_inicio", "Tipo"]).size().reset_index(name="Volume")
+        df_agrupado = df_filtrado_plot.groupby(["data_grafico", "Tipo"]).size().reset_index(name="Volume")
         fig_linha = px.line(
-            df_agrupado, x="data_inicio", y="Volume", color="Tipo", markers=True,
+            df_agrupado, x="data_grafico", y="Volume", color="Tipo", markers=True,
             color_discrete_sequence=PALETA_DIVERSA
         )
         
@@ -287,7 +296,10 @@ if not df_filtrado.empty:
     col_tabela, col_inspecao = st.columns([3, 2])
 
     with col_tabela:
-        dados_exibicao = df_filtrado[["Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].rename(columns={"sentimento": "Avaliação"})
+        dados_exibicao = df_filtrado[["Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].copy()
+        dados_exibicao["data_inicio"] = dados_exibicao["data_inicio"].dt.strftime('%d/%m/%Y %H:%M')
+        dados_exibicao = dados_exibicao.rename(columns={"sentimento": "Avaliação"})
+        
         selecao = st.dataframe(
             dados_exibicao,
             use_container_width=True,
@@ -311,7 +323,11 @@ if not df_filtrado.empty:
             st.markdown(f"**Funcionalidade:** {reg['funcionalidade']} | **Prioridade:** {reg['prioridade']}")
             st.markdown(f"**Criticidade:** {reg['criticidade']} | **Cliente:** {reg['cliente']}")
             st.markdown(f"**Sentimento:** {reg['sentimento']}")
-            st.markdown(f"**Início:** {reg['data_inicio']} | **Fim:** {reg['data_fim'] or 'Em aberto'}")
+            
+            # Formatação segura para visualização no inspetor
+            inicio_str = reg['data_inicio'].strftime('%d/%m/%Y %H:%M') if pd.notnull(reg['data_inicio']) else ""
+            fim_str = reg['data_fim'].strftime('%d/%m/%Y %H:%M') if pd.notnull(reg['data_fim']) else "Em aberto"
+            st.markdown(f"**Início:** {inicio_str} | **Fim:** {fim_str}")
             
             st.text_area("Histórico Completo / Conversa:", value=reg["historico_conversa"], height=250, disabled=True)
         else:
