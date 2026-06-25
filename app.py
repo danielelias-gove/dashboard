@@ -94,7 +94,8 @@ elif len(datas_selecionadas) == 1:
 else:
     data_inicio, data_fim = datas_selecionadas
 
-municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].unique().tolist())
+# Garantindo que nulls não quebrem a lista de municípios
+municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
 tipos_selecionados_ids = []
@@ -103,24 +104,28 @@ with st.sidebar.expander("Selecionar Tipos"):
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
-prioridades_existentes = df_raw["prioridade"].unique().tolist()
-ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3}
+# --- CORREÇÃO: Tratamento de valores Nulos na Prioridade ---
+prioridades_existentes = df_raw["prioridade"].fillna("Sem Prioridade").unique().tolist()
+ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3, "sem prioridade": 4}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
 
 prioridades_selecionadas = []
 with st.sidebar.expander("Selecionar Prioridades"):
     for p in prioridades_disp:
-        if st.checkbox(p, value=True, key=f"filter_prio_{p}"):
+        # st.checkbox exige String como label
+        if st.checkbox(str(p), value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
-sentimentos_existentes = df_raw["sentimento"].unique().tolist()
+# --- CORREÇÃO: Tratamento de valores Nulos no Sentimento ---
+sentimentos_existentes = df_raw["sentimento"].fillna("Não Informado").unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
 
 sentimentos_selecionados = []
 with st.sidebar.expander("Selecionar Sentimentos"):
     for s in sentimentos_disp:
-        if st.checkbox(s, value=True, key=f"filter_sent_{s}"):
+        # st.checkbox exige String como label
+        if st.checkbox(str(s), value=True, key=f"filter_sent_{s}"):
             sentimentos_selecionados.append(s)
 
 # --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
@@ -130,20 +135,20 @@ df_filtrado = df_raw[
 ]
 
 if municipio_selecionado != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["municipio_uf"] == municipio_selecionado]
+    df_filtrado = df_filtrado[df_filtrado["municipio_uf"].fillna("Não Informado").astype(str) == str(municipio_selecionado)]
 
 if tipos_selecionados_ids:
     df_filtrado = df_filtrado[df_filtrado["motivo_id"].isin(tipos_selecionados_ids)]
 
 if prioridades_selecionadas:
-    df_filtrado = df_filtrado[df_filtrado["prioridade"].isin(prioridades_selecionadas)]
+    df_filtrado = df_filtrado[df_filtrado["prioridade"].fillna("Sem Prioridade").isin(prioridades_selecionadas)]
 
 if sentimentos_selecionados:
-    df_filtrado = df_filtrado[df_filtrado["sentimento"].isin(sentimentos_selecionados)]
+    df_filtrado = df_filtrado[df_filtrado["sentimento"].fillna("Não Informado").isin(sentimentos_selecionados)]
 
 df_filtrado_canais = df_filtrado.copy()
 
-# CORREÇÃO CRÍTICA: Permite a visualização do canal 'Externo' E também de qualquer ticket cujo Tipo seja 'Local'
+# Permite a visualização do canal 'Externo' E também de qualquer ticket cujo Tipo seja 'Local'
 df_filtrado = df_filtrado[(df_filtrado["canal_origem"] == "Externo") | (df_filtrado["Tipo"] == "Local")]
 
 # =========================================================================
@@ -216,10 +221,10 @@ if not df_filtrado.empty:
     st.divider()
 
     st.subheader("Canais e Prioridades")
-    prioridades_resumo = df_filtrado["prioridade"].value_counts().reset_index()
+    prioridades_resumo = df_filtrado["prioridade"].fillna("Sem Prioridade").value_counts().reset_index()
     prioridades_resumo.columns = ["Prioridade", "Quantidade"]
 
-    prioridade_ordem = {"Crítico": 0, "Alta": 1, "Média": 2, "Media": 2, "Baixa": 3}
+    prioridade_ordem = {"Crítico": 0, "Alta": 1, "Média": 2, "Media": 2, "Baixa": 3, "Sem Prioridade": 4}
     prioridades_resumo["ordem"] = prioridades_resumo["Prioridade"].map(prioridade_ordem).fillna(99)
     prioridades_resumo = prioridades_resumo.sort_values(["ordem", "Quantidade"], ascending=[True, False]).drop(columns=["ordem"])
 
@@ -247,9 +252,9 @@ if not df_filtrado.empty:
         st.plotly_chart(fig_prio, use_container_width=True)
         
         dict_prio_valores = prioridades_resumo.set_index("Prioridade")["Quantidade"].to_dict()
-        ordem_exibicao_metricas = ["Crítico", "Alta", "Média", "Baixa"]
+        ordem_exibicao_metricas = ["Crítico", "Alta", "Média", "Baixa", "Sem Prioridade"]
         
-        colunas_metricas = st.columns(4)
+        colunas_metricas = st.columns(len(ordem_exibicao_metricas))
         for idx, rotulo_prio in enumerate(ordem_exibicao_metricas):
             valor_prio = dict_prio_valores.get(rotulo_prio, 0)
             colunas_metricas[idx].metric(label=rotulo_prio, value=valor_prio)
@@ -388,7 +393,7 @@ with col_exp_2:
         muni_txt += f"{idx}º {muni}: {count}\n"
 
     sent_txt = ""
-    for sent, count in df_filtrado["sentimento"].value_counts().items():
+    for sent, count in df_filtrado["sentimento"].fillna("Não Informado").value_counts().items():
         sent_txt += f"{sent}: {count}\n"
 
     df_fechados = df_filtrado.dropna(subset=['data_fim'])
