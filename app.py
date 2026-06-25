@@ -34,7 +34,7 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
-# 3. FUNÇÃO DE CARREGAMENTO (Corrigida para evitar corrupção de cache)
+# 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -63,10 +63,9 @@ def carregar_dados_banco():
     df = pd.DataFrame(dados_completos)
     df = df.rename(columns={"tipo": "Tipo"})
     
-    # CORREÇÃO: Mantém o formato Timestamp nativo do Pandas (seguro contra falhas de Cache)
-    # Removemos o fuso horário (tz_localize(None)) para evitar conflitos de comparação
-    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'], errors='coerce').dt.tz_localize(None)
-    df['data_fim'] = pd.to_datetime(df['data_fim_raw'], errors='coerce').dt.tz_localize(None)
+    # MANTÉM COMO DATETIME NATIVO NO PANDAS (Evita o erro de leitura do calendário do Streamlit)
+    df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
+    df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
     
     df = df.drop(columns=['data_inicio_raw', 'data_fim_raw'], errors='ignore')
     df = df.dropna(subset=['data_inicio'])
@@ -79,13 +78,15 @@ df_raw = carregar_dados_banco()
 # =========================================================================
 st.sidebar.header("Painel de Filtros")
 
-# Extrai os limites de data apenas para configurar o calendário
+# Extrai com segurança os objetos datetime.date para o Streamlit aceitar e não voltar aos 7 dias
 data_min = df_raw["data_inicio"].min().date()
 data_max = df_raw["data_inicio"].max().date()
 
 datas_selecionadas = st.sidebar.date_input(
     "Selecione o período (Data de Início):",
     value=(data_min, data_max),
+    min_value=data_min,
+    max_value=data_max,
     format="DD/MM/YYYY"
 )
 
@@ -96,7 +97,7 @@ elif len(datas_selecionadas) == 1:
 else:
     data_inicio, data_fim = datas_selecionadas
 
-# Garantindo que nulls não quebrem a lista
+# Tratamento para evitar quebra com Nulls/None em municípios
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
@@ -106,6 +107,7 @@ with st.sidebar.expander("Selecionar Tipos"):
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
+# Tratamento para evitar quebra com Nulls/None nas checkboxes
 prioridades_existentes = df_raw["prioridade"].fillna("Sem Prioridade").unique().tolist()
 ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3, "sem prioridade": 4}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
@@ -116,6 +118,7 @@ with st.sidebar.expander("Selecionar Prioridades"):
         if st.checkbox(str(p), value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
+# Tratamento para evitar quebra com Nulls/None nas checkboxes
 sentimentos_existentes = df_raw["sentimento"].fillna("Não Informado").unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
@@ -126,11 +129,10 @@ with st.sidebar.expander("Selecionar Sentimentos"):
         if st.checkbox(str(s), value=True, key=f"filter_sent_{s}"):
             sentimentos_selecionados.append(s)
 
-# --- CORREÇÃO DO FILTRO DE DATA ---
-# Converte a data do calendário de volta para Timestamp. 
-# O dt_fim recebe 23:59:59 para garantir que pegamos os tickets do último dia inteiro.
+# --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
+# Converte as datas selecionadas no menu de volta para Pandas Timestamp para filtrar
 dt_inicio_filtro = pd.to_datetime(data_inicio)
-dt_fim_filtro = pd.to_datetime(data_fim) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+dt_fim_filtro = pd.to_datetime(data_fim)
 
 df_filtrado = df_raw[
     (df_raw["data_inicio"] >= dt_inicio_filtro) & 
@@ -177,7 +179,7 @@ PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d
 if not df_filtrado.empty:
     st.subheader("Evolução das Aberturas")
     
-    # Criamos uma coluna temporária apenas com a data (sem as horas) para agrupar corretamente no gráfico
+    # Criamos uma coluna temporária apenas com a data para agrupar corretamente no gráfico
     df_filtrado_plot = df_filtrado.copy()
     df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].dt.date
     
@@ -297,7 +299,7 @@ if not df_filtrado.empty:
 
     with col_tabela:
         dados_exibicao = df_filtrado[["Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].copy()
-        dados_exibicao["data_inicio"] = dados_exibicao["data_inicio"].dt.strftime('%d/%m/%Y %H:%M')
+        dados_exibicao["data_inicio"] = dados_exibicao["data_inicio"].dt.strftime('%d/%m/%Y')
         dados_exibicao = dados_exibicao.rename(columns={"sentimento": "Avaliação"})
         
         selecao = st.dataframe(
@@ -324,9 +326,8 @@ if not df_filtrado.empty:
             st.markdown(f"**Criticidade:** {reg['criticidade']} | **Cliente:** {reg['cliente']}")
             st.markdown(f"**Sentimento:** {reg['sentimento']}")
             
-            # Formatação segura para visualização no inspetor
-            inicio_str = reg['data_inicio'].strftime('%d/%m/%Y %H:%M') if pd.notnull(reg['data_inicio']) else ""
-            fim_str = reg['data_fim'].strftime('%d/%m/%Y %H:%M') if pd.notnull(reg['data_fim']) else "Em aberto"
+            inicio_str = reg['data_inicio'].strftime('%d/%m/%Y') if pd.notnull(reg['data_inicio']) else ""
+            fim_str = reg['data_fim'].strftime('%d/%m/%Y') if pd.notnull(reg['data_fim']) else "Em aberto"
             st.markdown(f"**Início:** {inicio_str} | **Fim:** {fim_str}")
             
             st.text_area("Histórico Completo / Conversa:", value=reg["historico_conversa"], height=250, disabled=True)
