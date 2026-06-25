@@ -90,12 +90,17 @@ datas_selecionadas = st.sidebar.date_input(
     format="DD/MM/YYYY"
 )
 
-if not datas_selecionadas:
+# --- CORREÇÃO: Tratamento rigoroso do output do date_input ---
+try:
+    if not datas_selecionadas:
+        data_inicio, data_fim = data_min, data_max
+    elif len(datas_selecionadas) == 1:
+        data_inicio, data_fim = datas_selecionadas[0], datas_selecionadas[0]
+    else:
+        data_inicio, data_fim = datas_selecionadas[0], datas_selecionadas[1]
+except Exception:
+    # Fallback de segurança se o Streamlit bugar a tupla
     data_inicio, data_fim = data_min, data_max
-elif len(datas_selecionadas) == 1:
-    data_inicio, data_fim = datas_selecionadas[0], datas_selecionadas[0]
-else:
-    data_inicio, data_fim = datas_selecionadas
 
 # Tratamento para evitar quebra com Nulls/None em municípios
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
@@ -259,6 +264,8 @@ if not df_filtrado.empty:
             },
             category_orders={"Prioridade": ["Crítico", "Alta", "Média", "Baixa", "Sem Prioridade"]}
         )
+        # Forçar texto em branco para a fatia cinza "Sem Prioridade"
+        fig_prio.update_traces(textfont_color='white')
         fig_prio.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_prio, use_container_width=True)
         
