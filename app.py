@@ -112,7 +112,7 @@ with st.sidebar.expander("Selecionar Tipos"):
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
-# Tratamento para evitar quebra com Nulls/None nas checkboxes
+# Tratamento para evitar quebra com Nulls/None nas checkboxes de Prioridade
 prioridades_existentes = df_raw["prioridade"].fillna("Sem Prioridade").unique().tolist()
 ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3, "sem prioridade": 4}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
@@ -123,7 +123,7 @@ with st.sidebar.expander("Selecionar Prioridades"):
         if st.checkbox(str(p), value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
-# Tratamento para evitar quebra com Nulls/None nas checkboxes
+# Tratamento para evitar quebra com Nulls/None nas checkboxes de Sentimento
 sentimentos_existentes = df_raw["sentimento"].fillna("Não Informado").unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
@@ -133,6 +133,17 @@ with st.sidebar.expander("Selecionar Sentimentos"):
     for s in sentimentos_disp:
         if st.checkbox(str(s), value=True, key=f"filter_sent_{s}"):
             sentimentos_selecionados.append(s)
+
+# --- NOVO FILTRO: Seleção por Módulo do Software ---
+modulos_existentes = df_raw["modulo"].fillna("Não Informado").unique().tolist()
+modulos_disp = sorted(modulos_existentes, key=lambda x: str(x).lower().strip())
+
+modulos_selecionados = []
+with st.sidebar.expander("Selecionar Módulos"):
+    for m in modulos_disp:
+        if st.checkbox(str(m), value=True, key=f"filter_mod_{m}"):
+            modulos_selecionados.append(m)
+
 
 # --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
 # Converte as datas selecionadas no menu de volta para Pandas Timestamp para filtrar
@@ -156,6 +167,9 @@ if prioridades_selecionadas:
 if sentimentos_selecionados:
     df_filtrado = df_filtrado[df_filtrado["sentimento"].fillna("Não Informado").isin(sentimentos_selecionados)]
 
+if modulos_selecionados:
+    df_filtrado = df_filtrado[df_filtrado["modulo"].fillna("Não Informado").isin(modulos_selecionados)]
+
 df_filtrado_canais = df_filtrado.copy()
 
 # Permite a visualização do canal 'Externo' E também de qualquer ticket cujo Tipo seja 'Local'
@@ -173,10 +187,10 @@ total_abertos = len(df_filtrado)
 total_resolvidos = len(df_filtrado.dropna(subset=['data_fim']))
 
 st.subheader("Indicadores")
-col1, col2, col3 = st.columns(3)
-col1.metric("Atendimentos", total_abertos)
-col2.metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
-col3.metric("Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
+grid_metrics = st.columns(3)
+grid_metrics[0].metric("Atendimentos", total_abertos)
+grid_metrics[1].metric("Atendimentos Finalizados (Com Data Fim)", total_resolvidos, delta=f"{total_resolvidos - total_abertos} vs Abertos", delta_color="normal")
+grid_metrics[2].metric("Taxa de Conclusão", f"{(total_resolvidos/total_abertos*100):.1f}%" if total_abertos > 0 else "0%")
 st.divider()
 
 PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d4", "#4b5563", "#b91c1c", "#eab308"]
@@ -225,7 +239,7 @@ if not df_filtrado.empty:
 
     with col_graf2:
         st.markdown("**Distribuição por Módulo do Software**")
-        df_modulos_count = df_filtrado['modulo'].value_counts().reset_index()
+        df_modulos_count = df_filtrado['modulo'].fillna("Não Informado").value_counts().reset_index()
         df_modulos_count.columns = ['Módulo', 'Quantidade']
         fig_modulo = px.pie(
             df_modulos_count, values="Quantidade", names="Módulo", hole=0.4, 
