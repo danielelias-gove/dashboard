@@ -445,13 +445,13 @@ with col_exp_2:
     total_validos = sucesso_count + insucesso_count
     taxa_eficacia = (sucesso_count / total_validos * 100) if total_validos > 0 else 100
 
+# --- MONTAGEM DO TEXTO DO RELATÓRIO CORRIGIDO ---
     texto_completo = (
         f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n\n"
         f"⚖️ *Balanço (Entradas vs Saídas no período):*\n"
         f"- Novos tickets: {novos_tickets}\n"
         f"- Tickets Encerrados: {tickets_encerrados}\n\n"
         f"{saldo_txt}\n\n"
-        f"*📞 Canais de Atendimento:*\n{canais_txt}\n"
         f"*🛠️ Raios-X dos Problemas (Novos):*\n"
         f"🐛 Bugs: {bugs}\n"
         f"❌ Erros: {erros}\n"
@@ -465,7 +465,6 @@ with col_exp_2:
         f"*📊 Indicadores de Qualidade:*\n"
         f"🛠️ *Eficácia de Resolução:*\n"
         f"  - Sucesso (Finalizado/Corrigido): {sucesso_count}\n"
-        f"  - Insucesso (Não resolvido): {insucesso_count}\n"
         f"  _🎯 Taxa: {taxa_eficacia:.0f}%_\n\n"
         f"⏳ *Cumprimento de SLA: 86%*"
     )
