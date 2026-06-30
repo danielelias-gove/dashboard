@@ -172,8 +172,8 @@ if modulos_selecionados:
 
 df_filtrado_canais = df_filtrado.copy()
 
-# Permite a visualização do canal 'Externo' E também de qualquer ticket cujo Tipo seja 'Local'
-df_filtrado = df_filtrado[(df_filtrado["canal_origem"] == "Externo") | (df_filtrado["Tipo"] == "Local")]
+# --- CORREÇÃO DE CONTAGEM: Mantém a visualização estrita do canal 'Externo' ---
+df_filtrado = df_filtrado[df_filtrado["canal_origem"] == "Externo"]
 
 
 # =========================================================================
@@ -395,15 +395,6 @@ with col_exp_2:
     else:
         saldo_txt = "⚖️ Fila estável (Entrou = Saiu)."
 
-    total_canais = len(df_filtrado_canais)
-    canais_txt = ""
-    if total_canais > 0:
-        for canal, count in df_filtrado_canais["canal_origem"].value_counts().items():
-            pct = (count / total_canais) * 100
-            canais_txt += f"- {canal}: {count} ({pct:.0f}%)\n"
-    else:
-        canais_txt = "- Nenhum registro no período\n"
-
     def get_tipo_count(name):
         return len(df_filtrado[df_filtrado["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
 
@@ -437,15 +428,11 @@ with col_exp_2:
     df_fechados = df_filtrado.dropna(subset=['data_fim'])
 
     sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
-    insucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip() == "não resolvido"])
     
-    if sucesso_count == 0 and len(df_fechados) > 0 and insucesso_count == 0:
-        sucesso_count = len(df_fechados)
-        
-    total_validos = sucesso_count + insucesso_count
+    total_validos = sucesso_count
     taxa_eficacia = (sucesso_count / total_validos * 100) if total_validos > 0 else 100
 
-# --- MONTAGEM DO TEXTO DO RELATÓRIO CORRIGIDO ---
+    # --- MONTAGEM DO TEXTO DO RELATÓRIO CORRIGIDO ---
     texto_completo = (
         f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n\n"
         f"⚖️ *Balanço (Entradas vs Saídas no período):*\n"
