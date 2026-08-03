@@ -4,7 +4,9 @@ import plotly.express as px
 from supabase import create_client, Client
 import datetime
 
+# =========================================================================
 # 1. CONFIGURAÇÃO DA PÁGINA
+# =========================================================================
 st.set_page_config(
     page_title="Dashboard de Suporte",
     layout="wide"
@@ -25,7 +27,9 @@ TIPOS_ATIVOS = [
     {"id": 13, "nome": "Externo"}
 ]
 
+# =========================================================================
 # 2. CONEXÃO COM O SUPABASE
+# =========================================================================
 @st.cache_resource
 def iniciar_conexao():
     url: str = st.secrets["supabase"]["url"]
@@ -34,7 +38,9 @@ def iniciar_conexao():
 
 supabase = iniciar_conexao()
 
+# =========================================================================
 # 3. FUNÇÃO DE CARREGAMENTO PROGRESSIVO VIA API
+# =========================================================================
 @st.cache_data(ttl=300)
 def carregar_dados_banco():
     dados_completos = []
@@ -198,8 +204,9 @@ PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d
 if not df_filtrado.empty:
     st.subheader("Evolução das Aberturas")
     
-    # Criamos uma coluna temporária apenas com a data para agrupar corretamente no gráfico
+    # Criamos uma cópia exclusiva para o gráfico e FILTRAMOS APENAS DIAS ÚTEIS (Segunda=0 até Sexta=4)
     df_filtrado_plot = df_filtrado.copy()
+    df_filtrado_plot = df_filtrado_plot[df_filtrado_plot["data_inicio"].dt.weekday < 5]
     df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].dt.date
     
     if len(tipos_selecionados_ids) == len(TIPOS_ATIVOS) or len(tipos_selecionados_ids) == 0:
@@ -217,6 +224,7 @@ if not df_filtrado.empty:
         )
         
     fig_linha.update_layout(hovermode="x unified", xaxis_title="Data de Início", yaxis_title="Tickets")
+    fig_linha.update_xaxes(type='category')  # Evita brechas de dias ausentes no eixo horizontal
     st.plotly_chart(fig_linha, use_container_width=True)
 
     st.divider()
