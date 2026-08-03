@@ -391,9 +391,55 @@ with col_exp_1:
 with col_exp_2:
     st.markdown("**Formato de Leitura (Relatório Rápido)**")
     
+    # -------------------------------------------------------------------------
+    # 1. CÁLCULO E FILTRAGEM DO PERÍODO ANTERIOR (MESMA QUANTIDADE DE DIAS)
+    # -------------------------------------------------------------------------
+    dias_periodo = (dt_fim_filtro - dt_inicio_filtro).days + 1
+    dt_inicio_ant = dt_inicio_filtro - pd.Timedelta(days=dias_periodo)
+    dt_fim_ant = dt_inicio_filtro - pd.Timedelta(days=1)
+
+    df_anterior = df_raw[
+        (df_raw["data_inicio"] >= dt_inicio_ant) & 
+        (df_raw["data_inicio"] <= dt_fim_ant)
+    ]
+
+    if municipio_selecionado != "Todos":
+        df_anterior = df_anterior[df_anterior["municipio_uf"].fillna("Não Informado").astype(str) == str(municipio_selecionado)]
+
+    if tipos_selecionados_ids:
+        df_anterior = df_anterior[df_anterior["motivo_id"].isin(tipos_selecionados_ids)]
+
+    if prioridades_selecionadas:
+        df_anterior = df_anterior[df_anterior["prioridade"].fillna("Sem Prioridade").isin(prioridades_selecionadas)]
+
+    if sentimentos_selecionados:
+        df_anterior = df_anterior[df_anterior["sentimento"].fillna("Não Informado").isin(sentimentos_selecionados)]
+
+    if modulos_selecionados:
+        df_anterior = df_anterior[df_anterior["modulo"].fillna("Não Informado").isin(modulos_selecionados)]
+
+    df_anterior = df_anterior[df_anterior["canal_origem"] == "Externo"]
+
+    # Função para formatar a diferença (+X, -Y ou =)
+    def fmt_delta(atual, anterior):
+        diff = atual - anterior
+        if diff > 0:
+            return f" (+{diff})"
+        elif diff < 0:
+            return f" ({diff})"  # O sinal de negativo já vem nativo
+        return " (=)"
+
+    # -------------------------------------------------------------------------
+    # 2. CONSTRUÇÃO DAS MÉTRICAS COM COMPARAÇÃO
+    # -------------------------------------------------------------------------
     periodo_str = f"{data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}"
+    periodo_ant_str = f"{dt_inicio_ant.strftime('%d/%m')} a {dt_fim_ant.strftime('%d/%m')}"
+    
     novos_tickets = len(df_filtrado)
+    novos_tickets_ant = len(df_anterior)
+
     tickets_encerrados = len(df_filtrado.dropna(subset=['data_fim']))
+    tickets_encerrados_ant = len(df_anterior.dropna(subset=['data_fim']))
     
     saldo = tickets_encerrados - novos_tickets
     if saldo > 0:
@@ -403,63 +449,85 @@ with col_exp_2:
     else:
         saldo_txt = "⚖️ Fila estável (Entrou = Saiu)."
 
-    def get_tipo_count(name):
-        return len(df_filtrado[df_filtrado["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
+    # Contagem de tipos
+    def get_tipo_count(df_alvo, name):
+        return len(df_alvo[df_alvo["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
 
-    bugs = get_tipo_count("Bug")
-    erros = get_tipo_count("Erro")
-    incidentes = get_tipo_count("Incidente")
-    externos = get_tipo_count("Externo")
-    locais = get_tipo_count("Local")
+    bugs = get_tipo_count(df_filtrado, "Bug")
+    bugs_ant = get_tipo_count(df_anterior, "Bug")
 
+    erros = get_tipo_count(df_filtrado, "Erro")
+    erros_ant = get_tipo_count(df_anterior, "Erro")
+
+    incidentes = get_tipo_count(df_filtrado, "Incidente")
+    incidentes_ant = get_tipo_count(df_anterior, "Incidente")
+
+    externos = get_tipo_count(df_filtrado, "Externo")
+    externos_ant = get_tipo_count(df_anterior, "Externo")
+
+    locais = get_tipo_count(df_filtrado, "Local")
+    locais_ant = get_tipo_count(df_anterior, "Local")
+
+    # Outros motivos
     core_tipos = ["bug", "erro", "incidente", "externo", "local"]
     df_outros = df_filtrado[~df_filtrado["Tipo"].astype(str).str.lower().str.strip().isin(core_tipos)]
     outros_txt = ""
     if not df_outros.empty:
         for t, count in df_outros["Tipo"].value_counts().items():
-            outros_txt += f"📌 {t}: {count}\n"
+            count_ant = get_tipo_count(df_anterior, str(t))
+            outros_txt += f"📌 {t}: {count}{fmt_delta(count, count_ant)}\n"
     else:
         outros_txt = "📌 Nenhum outro motivo registrado\n"
 
+    # Módulos
     ofensores_txt = ""
     for idx, (mod, count) in enumerate(df_filtrado["modulo"].value_counts().head(5).items(), 1):
-        ofensores_txt += f"{idx}º {mod}: {count}\n"
+        count_ant = len(df_anterior[df_anterior["modulo"] == mod])
+        ofensores_txt += f"{idx}º {mod}: {count}{fmt_delta(count, count_ant)}\n"
 
+    # Municípios
     muni_txt = ""
     for idx, (muni, count) in enumerate(df_filtrado["municipio_uf"].value_counts().head(5).items(), 1):
-        muni_txt += f"{idx}º {muni}: {count}\n"
+        count_ant = len(df_anterior[df_anterior["municipio_uf"] == muni])
+        muni_txt += f"{idx}º {muni}: {count}{fmt_delta(count, count_ant)}\n"
 
+    # Sentimentos
     sent_txt = ""
     for sent, count in df_filtrado["sentimento"].fillna("Não Informado").value_counts().items():
-        sent_txt += f"{sent}: {count}\n"
+        count_ant = len(df_anterior[df_anterior["sentimento"].fillna("Não Informado") == sent])
+        sent_txt += f"{sent}: {count}{fmt_delta(count, count_ant)}\n"
 
+    # Indicadores de eficácia
     df_fechados = df_filtrado.dropna(subset=['data_fim'])
-
     sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
-    
-    total_validos = sucesso_count
-    taxa_eficacia = (sucesso_count / total_validos * 100) if total_validos > 0 else 100
+    taxa_eficacia = (sucesso_count / sucesso_count * 100) if sucesso_count > 0 else 100
 
-    # --- MONTAGEM DO TEXTO DO RELATÓRIO CORRIGIDO ---
+    df_fechados_ant = df_anterior.dropna(subset=['data_fim'])
+    sucesso_count_ant = len(df_fechados_ant[df_fechados_ant["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
+
+    # -------------------------------------------------------------------------
+    # 3. MONTAGEM FINAL DO TEXTO
+    # -------------------------------------------------------------------------
     texto_completo = (
-        f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n\n"
+        f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n"
+        f"_Comparativo vs período anterior ({periodo_ant_str})_\n\n"
         f"⚖️ *Balanço (Entradas vs Saídas no período):*\n"
-        f"- Novos tickets: {novos_tickets}\n"
-        f"- Tickets Encerrados: {tickets_encerrados}\n\n"
+        f"- Novos tickets: {novos_tickets}{fmt_delta(novos_tickets, novos_tickets_ant)}\n"
+        f"- Tickets Encerrados: {tickets_encerrados}{fmt_delta(tickets_encerrados, tickets_encerrados_ant)}\n\n"
         f"{saldo_txt}\n\n"
         f"*🛠️ Raios-X dos Problemas (Novos):*\n"
-        f"🐛 Bugs: {bugs}\n"
-        f"❌ Erros: {erros}\n"
-        f"🚨 Incidentes: {incidentes}\n"
-        f"🌐 Externos: {externos}\n"
-        f"📍 Locais: {locais}\n\n"
+        f"🐛 Bugs: {bugs}{fmt_delta(bugs, bugs_ant)}\n"
+        f"❌ Erros: {erros}{fmt_delta(erros, erros_ant)}\n"
+        f"🚨 Incidentes: {incidentes}{fmt_delta(incidentes, incidentes_ant)}\n"
+        f"🌐 Externos: {externos}{fmt_delta(externos, externos_ant)}\n"
+        f"📍 Locais: {locais}{fmt_delta(locais, locais_ant)}\n\n"
         f"*Outros motivos (Novos):*\n{outros_txt}\n"
         f"🔥 *Módulos com Mais Demandas:*\n{ofensores_txt}\n"
         f"🏙️ *Municípios com Mais Demandas:*\n{muni_txt}\n"
         f"*💖 Sentimento do Cliente (CSAT):*\n{sent_txt}\n"
         f"*📊 Indicadores de Qualidade:*\n"
         f"🛠️ *Eficácia de Resolução:*\n"
-        f"  - Sucesso (Finalizado/Corrigido): {sucesso_count}\n"
+        f"  - Sucesso (Finalizado/Corrigido): {sucesso_count}{fmt_delta(sucesso_count, sucesso_count_ant)}\n"
         f"  _🎯 Taxa: {taxa_eficacia:.0f}%_\n\n"
         f"⏳ *Cumprimento de SLA: 86%*"
     )
@@ -471,8 +539,3 @@ with col_exp_2:
         mime="text/plain",
         use_container_width=True
     )
-
-with st.expander("Clique aqui para visualizar e copiar o relatório rápido"):
-    st.code(texto_completo, language="text")
-    
-st.divider()
