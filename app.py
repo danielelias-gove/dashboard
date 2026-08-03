@@ -69,7 +69,7 @@ def carregar_dados_banco():
     df = pd.DataFrame(dados_completos)
     df = df.rename(columns={"tipo": "Tipo"})
     
-    # MANTÉM COMO DATETIME NATIVO NO PANDAS (Evita o erro de leitura do calendário do Streamlit)
+    # MANTÉM COMO DATETIME NATIVO NO PANDAS
     df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
     df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
     
@@ -80,11 +80,10 @@ def carregar_dados_banco():
 df_raw = carregar_dados_banco()
 
 # =========================================================================
-# FILTROS DA CONTROL PANEL (BARRA LATERAL)
+# 4. FILTROS DA CONTROL PANEL (BARRA LATERAL)
 # =========================================================================
 st.sidebar.header("Painel de Filtros")
 
-# Extrai com segurança os objetos datetime.date para o Streamlit aceitar e não voltar aos 7 dias
 data_min = df_raw["data_inicio"].min().date()
 data_max = df_raw["data_inicio"].max().date()
 
@@ -96,7 +95,6 @@ datas_selecionadas = st.sidebar.date_input(
     format="DD/MM/YYYY"
 )
 
-# --- CORREÇÃO: Tratamento rigoroso do output do date_input ---
 try:
     if not datas_selecionadas:
         data_inicio, data_fim = data_min, data_max
@@ -105,10 +103,8 @@ try:
     else:
         data_inicio, data_fim = datas_selecionadas[0], datas_selecionadas[1]
 except Exception:
-    # Fallback de segurança se o Streamlit bugar a tupla
     data_inicio, data_fim = data_min, data_max
 
-# Tratamento para evitar quebra com Nulls/None em municípios
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
@@ -118,7 +114,6 @@ with st.sidebar.expander("Selecionar Tipos"):
         if st.checkbox(item["nome"], value=True, key=f"filter_tipo_{item['id']}"):
             tipos_selecionados_ids.append(item["id"])
 
-# Tratamento para evitar quebra com Nulls/None nas checkboxes de Prioridade
 prioridades_existentes = df_raw["prioridade"].fillna("Sem Prioridade").unique().tolist()
 ordem_mapeamento_prio = {"crítico": 0, "critico": 0, "alta": 1, "média": 2, "media": 2, "baixa": 3, "sem prioridade": 4}
 prioridades_disp = sorted(prioridades_existentes, key=lambda x: ordem_mapeamento_prio.get(str(x).lower().strip(), 99))
@@ -129,7 +124,6 @@ with st.sidebar.expander("Selecionar Prioridades"):
         if st.checkbox(str(p), value=True, key=f"filter_prio_{p}"):
             prioridades_selecionadas.append(p)
 
-# Tratamento para evitar quebra com Nulls/None nas checkboxes de Sentimento
 sentimentos_existentes = df_raw["sentimento"].fillna("Não Informado").unique().tolist()
 ordem_mapeamento_sent = {"positivo": 0, "positiva": 0, "negativo": 1, "negativa": 1, "não informado": 2}
 sentimentos_disp = sorted(sentimentos_existentes, key=lambda x: ordem_mapeamento_sent.get(str(x).lower().strip(), 99))
@@ -140,7 +134,6 @@ with st.sidebar.expander("Selecionar Sentimentos"):
         if st.checkbox(str(s), value=True, key=f"filter_sent_{s}"):
             sentimentos_selecionados.append(s)
 
-# --- NOVO FILTRO: Seleção por Módulo do Software ---
 modulos_existentes = df_raw["modulo"].fillna("Não Informado").unique().tolist()
 modulos_disp = sorted(modulos_existentes, key=lambda x: str(x).lower().strip())
 
@@ -150,9 +143,7 @@ with st.sidebar.expander("Selecionar Módulos"):
         if st.checkbox(str(m), value=True, key=f"filter_mod_{m}"):
             modulos_selecionados.append(m)
 
-
 # --- APLICAÇÃO DOS FILTROS GLOBAIS NO DATAFRAME ---
-# Converte as datas selecionadas no menu de volta para Pandas Timestamp para filtrar
 dt_inicio_filtro = pd.to_datetime(data_inicio)
 dt_fim_filtro = pd.to_datetime(data_fim)
 
@@ -177,13 +168,10 @@ if modulos_selecionados:
     df_filtrado = df_filtrado[df_filtrado["modulo"].fillna("Não Informado").isin(modulos_selecionados)]
 
 df_filtrado_canais = df_filtrado.copy()
-
-# --- CORREÇÃO DE CONTAGEM: Mantém a visualização estrita do canal 'Externo' ---
 df_filtrado = df_filtrado[df_filtrado["canal_origem"] == "Externo"]
 
-
 # =========================================================================
-# RENDERIZAÇÃO DA INTERFACE
+# 5. RENDERIZAÇÃO DA INTERFACE
 # =========================================================================
 st.title("Dashboard de Suporte")
 st.markdown(f"Análise de **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}** | Município: **{municipio_selecionado}**")
@@ -204,9 +192,8 @@ PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d
 if not df_filtrado.empty:
     st.subheader("Evolução das Aberturas")
     
-    # Criamos uma cópia exclusiva para o gráfico e FILTRAMOS APENAS DIAS ÚTEIS (Segunda=0 até Sexta=4)
-    df_filtrado_plot = df_filtrado.copy()
-    df_filtrado_plot = df_filtrado_plot[df_filtrado_plot["data_inicio"].dt.weekday < 5]
+    # FILTRO: Mantém APENAS DIAS ÚTEIS (Segunda=0 a Sexta=4) no primeiro gráfico
+    df_filtrado_plot = df_filtrado[df_filtrado["data_inicio"].dt.weekday < 5].copy()
     df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].dt.date
     
     if len(tipos_selecionados_ids) == len(TIPOS_ATIVOS) or len(tipos_selecionados_ids) == 0:
@@ -224,7 +211,7 @@ if not df_filtrado.empty:
         )
         
     fig_linha.update_layout(hovermode="x unified", xaxis_title="Data de Início", yaxis_title="Tickets")
-    fig_linha.update_xaxes(type='category')  # Evita brechas de dias ausentes no eixo horizontal
+    fig_linha.update_xaxes(type='category')
     st.plotly_chart(fig_linha, use_container_width=True)
 
     st.divider()
@@ -286,7 +273,6 @@ if not df_filtrado.empty:
             },
             category_orders={"Prioridade": ["Crítico", "Alta", "Média", "Baixa", "Sem Prioridade"]}
         )
-        # Forçar texto em branco para a fatia cinza "Sem Prioridade"
         fig_prio.update_traces(textfont_color='white')
         fig_prio.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_prio, use_container_width=True)
@@ -369,7 +355,7 @@ else:
 st.divider()
 
 # =========================================================================
-# SEÇÃO DE EXPORTAÇÃO DE DADOS
+# 6. SEÇÃO DE EXPORTAÇÃO DE DADOS (COM DADOS COMPARATIVOS DO PERÍODO ANTERIOR)
 # =========================================================================
 st.subheader("Exportação de Atendimentos")
 col_exp_1, col_exp_2 = st.columns(2)
@@ -392,12 +378,13 @@ with col_exp_2:
     st.markdown("**Formato de Leitura (Relatório Rápido)**")
     
     # -------------------------------------------------------------------------
-    # 1. CÁLCULO E FILTRAGEM DO PERÍODO ANTERIOR (MESMA QUANTIDADE DE DIAS)
+    # CÁLCULO DINÂMICO DO PERÍODO ANTERIOR DE MESMA DURAÇÃO
     # -------------------------------------------------------------------------
     dias_periodo = (dt_fim_filtro - dt_inicio_filtro).days + 1
     dt_inicio_ant = dt_inicio_filtro - pd.Timedelta(days=dias_periodo)
     dt_fim_ant = dt_inicio_filtro - pd.Timedelta(days=1)
 
+    # Filtragem do DataFrame para o período anterior com os mesmos parâmetros
     df_anterior = df_raw[
         (df_raw["data_inicio"] >= dt_inicio_ant) & 
         (df_raw["data_inicio"] <= dt_fim_ant)
@@ -420,17 +407,17 @@ with col_exp_2:
 
     df_anterior = df_anterior[df_anterior["canal_origem"] == "Externo"]
 
-    # Função para formatar a diferença (+X, -Y ou =)
+    # Função auxiliar para formatar a diferença (+X, -Y ou =)
     def fmt_delta(atual, anterior):
         diff = atual - anterior
         if diff > 0:
             return f" (+{diff})"
         elif diff < 0:
-            return f" ({diff})"  # O sinal de negativo já vem nativo
+            return f" ({diff})"
         return " (=)"
 
     # -------------------------------------------------------------------------
-    # 2. CONSTRUÇÃO DAS MÉTRICAS COM COMPARAÇÃO
+    # MONTAGEM DAS MÉTRICAS E TEXTO DO RELATÓRIO
     # -------------------------------------------------------------------------
     periodo_str = f"{data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}"
     periodo_ant_str = f"{dt_inicio_ant.strftime('%d/%m')} a {dt_fim_ant.strftime('%d/%m')}"
@@ -449,7 +436,6 @@ with col_exp_2:
     else:
         saldo_txt = "⚖️ Fila estável (Entrou = Saiu)."
 
-    # Contagem de tipos
     def get_tipo_count(df_alvo, name):
         return len(df_alvo[df_alvo["Tipo"].astype(str).str.lower().str.strip() == name.lower()])
 
@@ -468,7 +454,6 @@ with col_exp_2:
     locais = get_tipo_count(df_filtrado, "Local")
     locais_ant = get_tipo_count(df_anterior, "Local")
 
-    # Outros motivos
     core_tipos = ["bug", "erro", "incidente", "externo", "local"]
     df_outros = df_filtrado[~df_filtrado["Tipo"].astype(str).str.lower().str.strip().isin(core_tipos)]
     outros_txt = ""
@@ -479,25 +464,21 @@ with col_exp_2:
     else:
         outros_txt = "📌 Nenhum outro motivo registrado\n"
 
-    # Módulos
     ofensores_txt = ""
     for idx, (mod, count) in enumerate(df_filtrado["modulo"].value_counts().head(5).items(), 1):
         count_ant = len(df_anterior[df_anterior["modulo"] == mod])
         ofensores_txt += f"{idx}º {mod}: {count}{fmt_delta(count, count_ant)}\n"
 
-    # Municípios
     muni_txt = ""
     for idx, (muni, count) in enumerate(df_filtrado["municipio_uf"].value_counts().head(5).items(), 1):
         count_ant = len(df_anterior[df_anterior["municipio_uf"] == muni])
         muni_txt += f"{idx}º {muni}: {count}{fmt_delta(count, count_ant)}\n"
 
-    # Sentimentos
     sent_txt = ""
     for sent, count in df_filtrado["sentimento"].fillna("Não Informado").value_counts().items():
         count_ant = len(df_anterior[df_anterior["sentimento"].fillna("Não Informado") == sent])
         sent_txt += f"{sent}: {count}{fmt_delta(count, count_ant)}\n"
 
-    # Indicadores de eficácia
     df_fechados = df_filtrado.dropna(subset=['data_fim'])
     sucesso_count = len(df_fechados[df_fechados["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
     taxa_eficacia = (sucesso_count / sucesso_count * 100) if sucesso_count > 0 else 100
@@ -505,9 +486,6 @@ with col_exp_2:
     df_fechados_ant = df_anterior.dropna(subset=['data_fim'])
     sucesso_count_ant = len(df_fechados_ant[df_fechados_ant["status"].astype(str).str.lower().str.strip().isin(["finalizado", "corrigido", "concluído"])])
 
-    # -------------------------------------------------------------------------
-    # 3. MONTAGEM FINAL DO TEXTO
-    # -------------------------------------------------------------------------
     texto_completo = (
         f"*📊 RELATÓRIO CUSTOMIZADO ({periodo_str})*\n"
         f"_Comparativo vs período anterior ({periodo_ant_str})_\n\n"
@@ -539,3 +517,8 @@ with col_exp_2:
         mime="text/plain",
         use_container_width=True
     )
+
+with st.expander("Clique aqui para visualizar e copiar o relatório rápido"):
+    st.code(texto_completo, language="text")
+    
+st.divider()
