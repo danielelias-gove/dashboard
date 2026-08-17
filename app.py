@@ -76,13 +76,21 @@ def carregar_dados_banco():
     df = pd.DataFrame(dados_completos)
     df = df.rename(columns={"tipo": "Tipo"})
     
-    # TRADUZIR O USUARIO_ID PARA NOME DO ATENDENTE
+    # TRADUZIR O USUARIO_ID PARA NOME DO ATENDENTE (Com Aglutinação para "Outros")
     def mapear_atendente(user_id):
         if pd.isna(user_id):
             return "Não Atribuído"
-        return MAPA_ATENDENTES.get(int(user_id), f"Outro (ID {int(user_id)})")
+        try:
+            # Se não estiver no MAPA_ATENDENTES, agrupa como "Outros"
+            return MAPA_ATENDENTES.get(int(user_id), "Outros")
+        except:
+            return "Não Atribuído"
         
-    df['atendente'] = df['usuario_id'].apply(mapear_atendente)
+    # TRAVA DE SEGURANÇA: Verifica se a coluna existe antes de aplicar
+    if 'usuario_id' in df.columns:
+        df['atendente'] = df['usuario_id'].apply(mapear_atendente)
+    else:
+        df['atendente'] = "Não Informado (Coluna Inexistente)"
     
     # MANTÉM COMO DATETIME NATIVO NO PANDAS
     df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
@@ -123,7 +131,7 @@ except Exception:
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
 
-# FILTRO DE ATENDENTES NOVO AQUI
+# FILTRO DE ATENDENTES
 atendentes_existentes = df_raw["atendente"].unique().tolist()
 atendentes_disp = sorted([str(a) for a in atendentes_existentes])
 
@@ -219,11 +227,28 @@ st.divider()
 PALETA_DIVERSA = ["#1e40af", "#d97706", "#10b981", "#7c3aed", "#db2777", "#06b6d4", "#4b5563", "#b91c1c", "#eab308"]
 
 if not df_filtrado.empty:
-    st.subheader("Evolução das Aberturas")
+    col_titulo, col_radio = st.columns([2, 1])
+    with col_titulo:
+        st.subheader("Evolução das Aberturas")
+    with col_radio:
+        # CONTROLE DE GRANULARIDADE DE TEMPO (Diária, Semanal, Mensal)
+        granulidade = st.radio("Dimensão de Tempo:", ["Diária", "Semanal", "Mensal"], horizontal=True, label_visibility="collapsed")
     
-    # FILTRO: Mantém APENAS DIAS ÚTEIS (Segunda=0 a Sexta=4) no primeiro gráfico
-    df_filtrado_plot = df_filtrado[df_filtrado["data_inicio"].dt.weekday < 5].copy()
-    df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].dt.date
+    # Mantém APENAS DIAS ÚTEIS se for visão Diária (opcional, mantive sua lógica original)
+    if granulidade == "Diária":
+        df_filtrado_plot = df_filtrado[df_filtrado["data_inicio"].dt.weekday < 5].copy()
+    else:
+        df_filtrado_plot = df_filtrado.copy()
+        
+    # Aplica a granularidade selecionada no eixo temporal
+    if granulidade == "Diária":
+        df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].dt.date
+    elif granulidade == "Semanal":
+        # Agrupa pela Segunda-Feira da respectiva semana
+        df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].apply(lambda x: x - datetime.timedelta(days=x.weekday())).dt.date
+    elif granulidade == "Mensal":
+        # Agrupa pelo dia 1º do mês
+        df_filtrado_plot["data_grafico"] = df_filtrado_plot["data_inicio"].apply(lambda x: x.replace(day=1)).dt.date
     
     if len(tipos_selecionados_ids) == len(TIPOS_ATIVOS) or len(tipos_selecionados_ids) == 0:
         df_agrupado = df_filtrado_plot.groupby("data_grafico").size().reset_index(name="Volume")
@@ -239,8 +264,8 @@ if not df_filtrado.empty:
             color_discrete_sequence=PALETA_DIVERSA
         )
         
-    fig_linha.update_layout(hovermode="x unified", xaxis_title="Data de Início", yaxis_title="Tickets")
-    fig_linha.update_xaxes(type='category')
+    fig_linha.update_layout(hovermode="x unified", xaxis_title="Período (" + granulidade + ")", yaxis_title="Tickets")
+    fig_linha.update_xaxes(type='category' if granulidade == "Diária" else 'date')
     st.plotly_chart(fig_linha, use_container_width=True)
 
     st.divider()
@@ -342,7 +367,6 @@ if not df_filtrado.empty:
     col_tabela, col_inspecao = st.columns([3, 2])
 
     with col_tabela:
-        # ATENDENTE INCLUÍDO AQUI NA LISTA DE COLUNAS EXIBIDAS
         dados_exibicao = df_filtrado[["atendente", "Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].copy()
         dados_exibicao["data_inicio"] = dados_exibicao["data_inicio"].dt.strftime('%d/%m/%Y')
         dados_exibicao = dados_exibicao.rename(columns={"sentimento": "Avaliação", "atendente": "Atendente"})
@@ -365,7 +389,6 @@ if not df_filtrado.empty:
             reg = df_filtrado.iloc[idx]
             
             st.success(f"**Protocolo:** `{reg['protocolo']}` | **Status:** `{reg['status']}`")
-            # ATENDENTE INCLUÍDO AQUI NOS DETALHES VISUAIS
             st.markdown(f"**Atendente:** {reg['atendente']} | **Município:** {reg['municipio_uf']}")
             st.markdown(f"**Origem:** {reg['canal_origem']} | **Tipo:** {reg['Tipo']}")
             st.markdown(f"**Módulo:** {reg['modulo']} | **Funcionalidade:** {reg['funcionalidade']}")
@@ -424,7 +447,6 @@ with col_exp_2:
     if municipio_selecionado != "Todos":
         df_anterior = df_anterior[df_anterior["municipio_uf"].fillna("Não Informado").astype(str) == str(municipio_selecionado)]
 
-    # APLICAÇÃO DO FILTRO DE ATENDENTES NO RELATÓRIO COMPARATIVO
     if atendentes_selecionados:
         df_anterior = df_anterior[df_anterior["atendente"].isin(atendentes_selecionados)]
 
