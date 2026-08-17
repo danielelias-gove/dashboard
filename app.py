@@ -27,6 +27,13 @@ TIPOS_ATIVOS = [
     {"id": 13, "nome": "Externo"}
 ]
 
+# Dicionário de conversão de IDs de Usuários para Nomes Reais
+MAPA_ATENDENTES = {
+    2: "Samuel",
+    4: "Gabriele",
+    7: "Daniel"
+}
+
 # =========================================================================
 # 2. CONEXÃO COM O SUPABASE
 # =========================================================================
@@ -69,6 +76,14 @@ def carregar_dados_banco():
     df = pd.DataFrame(dados_completos)
     df = df.rename(columns={"tipo": "Tipo"})
     
+    # TRADUZIR O USUARIO_ID PARA NOME DO ATENDENTE
+    def mapear_atendente(user_id):
+        if pd.isna(user_id):
+            return "Não Atribuído"
+        return MAPA_ATENDENTES.get(int(user_id), f"Outro (ID {int(user_id)})")
+        
+    df['atendente'] = df['usuario_id'].apply(mapear_atendente)
+    
     # MANTÉM COMO DATETIME NATIVO NO PANDAS
     df['data_inicio'] = pd.to_datetime(df['data_inicio_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
     df['data_fim'] = pd.to_datetime(df['data_fim_raw'].astype(str).str[:10], format='%Y-%m-%d', errors='coerce')
@@ -107,6 +122,16 @@ except Exception:
 
 municipios_disp = ["Todos"] + sorted(df_raw["municipio_uf"].fillna("Não Informado").astype(str).unique().tolist())
 municipio_selecionado = st.sidebar.selectbox("Município:", municipios_disp)
+
+# FILTRO DE ATENDENTES NOVO AQUI
+atendentes_existentes = df_raw["atendente"].unique().tolist()
+atendentes_disp = sorted([str(a) for a in atendentes_existentes])
+
+atendentes_selecionados = []
+with st.sidebar.expander("Selecionar Atendentes"):
+    for a in atendentes_disp:
+        if st.checkbox(a, value=True, key=f"filter_atend_{a}"):
+            atendentes_selecionados.append(a)
 
 tipos_selecionados_ids = []
 with st.sidebar.expander("Selecionar Tipos"):
@@ -154,6 +179,10 @@ df_filtrado = df_raw[
 
 if municipio_selecionado != "Todos":
     df_filtrado = df_filtrado[df_filtrado["municipio_uf"].fillna("Não Informado").astype(str) == str(municipio_selecionado)]
+
+# APLICAÇÃO DO FILTRO DE ATENDENTES
+if atendentes_selecionados:
+    df_filtrado = df_filtrado[df_filtrado["atendente"].isin(atendentes_selecionados)]
 
 if tipos_selecionados_ids:
     df_filtrado = df_filtrado[df_filtrado["motivo_id"].isin(tipos_selecionados_ids)]
@@ -313,9 +342,10 @@ if not df_filtrado.empty:
     col_tabela, col_inspecao = st.columns([3, 2])
 
     with col_tabela:
-        dados_exibicao = df_filtrado[["Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].copy()
+        # ATENDENTE INCLUÍDO AQUI NA LISTA DE COLUNAS EXIBIDAS
+        dados_exibicao = df_filtrado[["atendente", "Tipo", "prioridade", "municipio_uf", "cliente", "modulo", "status", "sentimento", "data_inicio", "protocolo"]].copy()
         dados_exibicao["data_inicio"] = dados_exibicao["data_inicio"].dt.strftime('%d/%m/%Y')
-        dados_exibicao = dados_exibicao.rename(columns={"sentimento": "Avaliação"})
+        dados_exibicao = dados_exibicao.rename(columns={"sentimento": "Avaliação", "atendente": "Atendente"})
         
         selecao = st.dataframe(
             dados_exibicao,
@@ -335,11 +365,12 @@ if not df_filtrado.empty:
             reg = df_filtrado.iloc[idx]
             
             st.success(f"**Protocolo:** `{reg['protocolo']}` | **Status:** `{reg['status']}`")
-            st.markdown(f"**Município:** {reg['municipio_uf']} | **Origem:** {reg['canal_origem']}")
-            st.markdown(f"**tipo:** {reg['Tipo']} | **Módulo:** {reg['modulo']}")
-            st.markdown(f"**Funcionalidade:** {reg['funcionalidade']} | **Prioridade:** {reg['prioridade']}")
-            st.markdown(f"**Criticidade:** {reg['criticidade']} | **Cliente:** {reg['cliente']}")
-            st.markdown(f"**Sentimento:** {reg['sentimento']}")
+            # ATENDENTE INCLUÍDO AQUI NOS DETALHES VISUAIS
+            st.markdown(f"**Atendente:** {reg['atendente']} | **Município:** {reg['municipio_uf']}")
+            st.markdown(f"**Origem:** {reg['canal_origem']} | **Tipo:** {reg['Tipo']}")
+            st.markdown(f"**Módulo:** {reg['modulo']} | **Funcionalidade:** {reg['funcionalidade']}")
+            st.markdown(f"**Prioridade:** {reg['prioridade']} | **Criticidade:** {reg['criticidade']}")
+            st.markdown(f"**Cliente:** {reg['cliente']} | **Sentimento:** {reg['sentimento']}")
             
             inicio_str = reg['data_inicio'].strftime('%d/%m/%Y') if pd.notnull(reg['data_inicio']) else ""
             fim_str = reg['data_fim'].strftime('%d/%m/%Y') if pd.notnull(reg['data_fim']) else "Em aberto"
@@ -392,6 +423,10 @@ with col_exp_2:
 
     if municipio_selecionado != "Todos":
         df_anterior = df_anterior[df_anterior["municipio_uf"].fillna("Não Informado").astype(str) == str(municipio_selecionado)]
+
+    # APLICAÇÃO DO FILTRO DE ATENDENTES NO RELATÓRIO COMPARATIVO
+    if atendentes_selecionados:
+        df_anterior = df_anterior[df_anterior["atendente"].isin(atendentes_selecionados)]
 
     if tipos_selecionados_ids:
         df_anterior = df_anterior[df_anterior["motivo_id"].isin(tipos_selecionados_ids)]
